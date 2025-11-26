@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { ArrowUp, Plus, Loader2, FileText, User, Bot } from "lucide-react"
+import { ArrowUp, Plus, Loader2, FileText, User, Bot, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { FileUpload } from "@/components/features/file-upload"
+import ReactMarkdown from "react-markdown"
 
 interface Message {
   id: string
@@ -124,27 +125,93 @@ export default function ChatPage() {
               <div
                 key={message.id}
                 className={cn(
-                  "flex gap-4",
+                  "flex gap-3",
                   message.role === "user" ? "justify-end" : "justify-start"
                 )}
               >
                 {message.role === "assistant" && (
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
                     <Bot className="w-4 h-4 text-primary" />
                   </div>
                 )}
                 <div
                   className={cn(
-                    "max-w-[80%] rounded-2xl px-4 py-3",
+                    "rounded-2xl px-4 py-3 max-w-[85%] overflow-hidden",
                     message.role === "user"
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted"
                   )}
                 >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  {message.role === "assistant" ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none break-words">
+                      <ReactMarkdown
+                        components={{
+                          // Custom link rendering
+                          a: ({ href, children }) => (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline inline-flex items-center gap-1"
+                            >
+                              {children}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ),
+                          // Ensure paragraphs don't have excessive margins
+                          p: ({ children }) => (
+                            <p className="mb-2 last:mb-0">{children}</p>
+                          ),
+                          // Style lists properly
+                          ul: ({ children }) => (
+                            <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>
+                          ),
+                          ol: ({ children }) => (
+                            <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>
+                          ),
+                          li: ({ children }) => (
+                            <li className="leading-relaxed">{children}</li>
+                          ),
+                          // Style headings
+                          h1: ({ children }) => (
+                            <h1 className="text-lg font-bold mb-2">{children}</h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="text-base font-bold mb-2">{children}</h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 className="text-sm font-bold mb-1">{children}</h3>
+                          ),
+                          // Code blocks
+                          code: ({ className, children }) => {
+                            const isInline = !className;
+                            return isInline ? (
+                              <code className="bg-background/50 px-1 py-0.5 rounded text-sm">
+                                {children}
+                              </code>
+                            ) : (
+                              <code className="block bg-background/50 p-2 rounded text-sm overflow-x-auto">
+                                {children}
+                              </code>
+                            );
+                          },
+                          // Strong/bold text
+                          strong: ({ children }) => (
+                            <strong className="font-semibold">{children}</strong>
+                          ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  )}
+                  
+                  {/* Sources */}
                   {message.sources && message.sources.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-border/50">
-                      <p className="text-xs text-muted-foreground mb-2">Sources:</p>
+                    <div className="mt-3 pt-3 border-t border-border/30">
+                      <p className="text-xs text-muted-foreground mb-2 font-medium">Sources:</p>
                       <div className="flex flex-wrap gap-2">
                         {message.sources.map((source, idx) => (
                           source.url ? (
@@ -153,18 +220,19 @@ export default function ChatPage() {
                               href={source.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-background text-xs hover:bg-accent transition-colors"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/80 text-xs hover:bg-background transition-colors border border-border/50"
                             >
-                              <FileText className="w-3 h-3" />
-                              {source.name}
+                              <FileText className="w-3 h-3 text-muted-foreground" />
+                              <span className="truncate max-w-[200px]">{source.name}</span>
+                              <ExternalLink className="w-3 h-3 text-muted-foreground" />
                             </a>
                           ) : (
                             <span
                               key={idx}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-background text-xs"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/80 text-xs border border-border/50"
                             >
-                              <FileText className="w-3 h-3" />
-                              {source.name}
+                              <FileText className="w-3 h-3 text-muted-foreground" />
+                              <span className="truncate max-w-[200px]">{source.name}</span>
                             </span>
                           )
                         ))}
@@ -173,19 +241,22 @@ export default function ChatPage() {
                   )}
                 </div>
                 {message.role === "user" && (
-                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-1">
                     <User className="w-4 h-4 text-primary-foreground" />
                   </div>
                 )}
               </div>
             ))}
             {isLoading && (
-              <div className="flex gap-4 justify-start">
+              <div className="flex gap-3 justify-start">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <Bot className="w-4 h-4 text-primary" />
                 </div>
                 <div className="bg-muted rounded-2xl px-4 py-3">
-                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Thinking...</span>
+                  </div>
                 </div>
               </div>
             )}
