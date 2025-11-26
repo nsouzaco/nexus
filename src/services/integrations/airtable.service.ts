@@ -32,12 +32,12 @@ async function getAirtableToken(userId: string): Promise<string | null> {
 }
 
 /**
- * Search Airtable for relevant content
+ * Search Airtable for relevant content - returns ALL records from all tables
  */
 export async function searchAirtable(
   userId: string,
-  query: string,
-  limit: number = 20
+  _query: string,
+  _limit?: number
 ): Promise<AirtableSearchResult[]> {
   const accessToken = await getAirtableToken(userId);
   
@@ -58,14 +58,12 @@ export async function searchAirtable(
       return [];
     }
     
-    // Search through each base's tables
-    for (const base of bases.slice(0, 3)) { // Limit to 3 bases
+    // Fetch ALL records from ALL tables in ALL bases (no limits)
+    for (const base of bases) {
       const tables = await getTables(accessToken, base.id);
       console.log(`Airtable tables in ${base.name}:`, tables.map(t => t.name));
       
-      // Fetch ALL records from ALL tables
       for (const table of tables) {
-        // Use table NAME for the API call (works more reliably than ID)
         const records = await getAllRecords(accessToken, base.id, table.name);
         console.log(`Airtable records in ${table.name}:`, records.length);
         
@@ -84,7 +82,7 @@ export async function searchAirtable(
     }
 
     console.log('Airtable total results:', results.length);
-    return results.slice(0, limit);
+    return results; // Return ALL results, no limit
   } catch (error) {
     console.error('Airtable search error:', error);
     return results;

@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
         console.error('RAG context error:', err);
         return { chunks: [], totalTokens: 0, sources: [] };
       }),
-      searchIntegrations(user.id, message, 5).catch(err => {
+      searchIntegrations(user.id, message, 15).catch(err => {
         console.error('Integration search error:', err);
         return { results: [], connectedIntegrations: [] };
       }),

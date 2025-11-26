@@ -130,11 +130,11 @@ export async function searchIntegrations(
     );
   }
 
-  // Airtable
+  // Airtable - ALWAYS fetch ALL records (ignore isListing - we want full data)
   if (airtableConnected) {
     connectedIntegrations.push('airtable');
     searchPromises.push(
-      (isListing ? getBasesSummary(userId) : searchAirtable(userId, query, limitPerSource))
+      searchAirtable(userId, query)
         .then((airtableResults) => {
           for (const result of airtableResults) {
             results.push({

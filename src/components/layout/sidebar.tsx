@@ -1,23 +1,70 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { MessageSquare, Search, ChevronUp } from "lucide-react"
+import { MessageSquare, Search, ChevronUp, Trash2 } from "lucide-react"
 import type { User } from "@supabase/supabase-js"
 import { useEffect, useState } from "react"
+import { toast } from "@/components/ui/use-toast"
 
 interface SidebarProps {
   user: User
   conversations?: Array<{ id: string; title: string }>
 }
 
-export function Sidebar({ user, conversations = [] }: SidebarProps) {
+export function Sidebar({ user, conversations: initialConversations = [] }: SidebarProps) {
   const [isMounted, setIsMounted] = useState(false)
+  const [conversations, setConversations] = useState(initialConversations)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const router = useRouter()
 
   useEffect(() => {
     setIsMounted(true)
   }, [])
+
+  useEffect(() => {
+    setConversations(initialConversations)
+  }, [initialConversations])
+
+  const handleDelete = async (e: React.MouseEvent, chatId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    setDeletingId(chatId)
+    
+    try {
+      const res = await fetch(`/api/chat/${chatId}`, {
+        method: 'DELETE',
+      })
+      
+      if (!res.ok) {
+        throw new Error('Failed to delete conversation')
+      }
+      
+      // Remove from local state
+      setConversations(prev => prev.filter(c => c.id !== chatId))
+      
+      // If we're currently viewing this chat, redirect to /chat
+      if (window.location.pathname === `/chat/${chatId}`) {
+        router.push('/chat')
+      }
+      
+      toast({
+        title: "Chat deleted",
+        description: "The conversation has been removed.",
+      })
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete conversation",
+      })
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const displayName = user.user_metadata?.display_name || user.email?.split("@")[0] || "User"
   const initials = displayName
@@ -57,12 +104,22 @@ export function Sidebar({ user, conversations = [] }: SidebarProps) {
             <div className="space-y-0.5">
               {conversations.map((chat) => (
                 <Link key={chat.id} href={`/chat/${chat.id}`}>
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start px-2 h-8 font-normal text-[13px] text-gray-600 hover:text-foreground hover:bg-gray-200/50 truncate"
-                  >
-                    {chat.title}
-                  </Button>
+                  <div className="group relative flex items-center">
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start px-2 h-8 font-normal text-[13px] text-gray-600 hover:text-foreground hover:bg-gray-200/50 truncate pr-8"
+                    >
+                      <span className="truncate">{chat.title}</span>
+                    </Button>
+                    <button
+                      onClick={(e) => handleDelete(e, chat.id)}
+                      disabled={deletingId === chat.id}
+                      className="absolute right-1 p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-gray-300/50 transition-opacity disabled:opacity-50"
+                      title="Delete chat"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-gray-500 hover:text-red-500 transition-colors" />
+                    </button>
+                  </div>
                 </Link>
               ))}
             </div>
