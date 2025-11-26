@@ -49,13 +49,16 @@ async function parsePDF(buffer: Buffer): Promise<ParsedDocument> {
   
   const parser = new PDFParse({ data: buffer });
   const result = await parser.getText();
-  const info = await parser.getInfo() as Record<string, unknown>;
+  const info = await parser.getInfo();
   await parser.destroy();
+
+  // Safely extract numPages - the type definition may not include it but the runtime does
+  const numPages = (info as unknown as { numPages?: number }).numPages;
 
   return {
     text: result.text,
     metadata: {
-      pageCount: typeof info.numPages === 'number' ? info.numPages : undefined,
+      pageCount: typeof numPages === 'number' ? numPages : undefined,
       wordCount: result.text.split(/\s+/).filter(Boolean).length,
       charCount: result.text.length,
     },
