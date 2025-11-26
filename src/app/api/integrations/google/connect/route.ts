@@ -9,12 +9,13 @@ export async function GET() {
     return NextResponse.redirect(new URL("/login", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"))
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim()
   if (!clientId) {
     return NextResponse.json({ error: "Google client ID not configured" }, { status: 500 })
   }
 
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/integrations/google/callback`
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").trim()
+  const redirectUri = `${appUrl}/api/integrations/google/callback`
   
   // Generate state to prevent CSRF
   const state = Buffer.from(JSON.stringify({ userId: user.id })).toString("base64")
@@ -30,4 +31,3 @@ export async function GET() {
 
   return NextResponse.redirect(authUrl.toString())
 }
-
