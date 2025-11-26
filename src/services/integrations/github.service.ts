@@ -32,7 +32,7 @@ async function getGitHubToken(userId: string): Promise<string | null> {
 }
 
 /**
- * Search GitHub for relevant content
+ * Search GitHub for relevant content - ONLY user's own repos
  */
 export async function searchGitHub(
   userId: string,
@@ -48,17 +48,19 @@ export async function searchGitHub(
   const results: GitHubSearchResult[] = [];
 
   try {
-    // Search repositories
-    const repoResults = await searchRepos(accessToken, query, Math.ceil(limit / 3));
+    // Get user's username first
+    const username = await getGitHubUsername(accessToken);
+    if (!username) {
+      return [];
+    }
+
+    // Search only user's own repositories
+    const repoResults = await searchUserRepos(accessToken, username, query, Math.ceil(limit / 2));
     results.push(...repoResults);
 
-    // Search issues and PRs
-    const issueResults = await searchIssues(accessToken, query, Math.ceil(limit / 3));
+    // Search issues/PRs in user's repos only
+    const issueResults = await searchUserIssues(accessToken, username, query, Math.ceil(limit / 2));
     results.push(...issueResults);
-
-    // Search code
-    const codeResults = await searchCode(accessToken, query, Math.ceil(limit / 3));
-    results.push(...codeResults);
 
     return results.slice(0, limit);
   } catch (error) {
@@ -68,15 +70,40 @@ export async function searchGitHub(
 }
 
 /**
- * Search GitHub repositories
+ * Get GitHub username for the authenticated user
  */
-async function searchRepos(
+async function getGitHubUsername(accessToken: string): Promise<string | null> {
+  try {
+    const res = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    return data.login;
+  } catch (error) {
+    console.error('Error fetching GitHub user:', error);
+    return null;
+  }
+}
+
+/**
+ * Search user's own repositories
+ */
+async function searchUserRepos(
   accessToken: string,
+  username: string,
   query: string,
   limit: number
 ): Promise<GitHubSearchResult[]> {
   try {
-    const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&per_page=${limit}&sort=updated`;
+    // Search only in user's repos using user: qualifier
+    const searchQuery = `${query} user:${username}`;
+    const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(searchQuery)}&per_page=${limit}&sort=updated`;
     
     const res = await fetch(searchUrl, {
       headers: {
@@ -85,7 +112,10 @@ async function searchRepos(
       },
     });
 
-    if (!res.ok) return [];
+    if (!res.ok) {
+      // Fallback: get user's repos and filter locally
+      return getUserReposFiltered(accessToken, query, limit);
+    }
 
     const data = await res.json();
     
@@ -98,21 +128,65 @@ async function searchRepos(
       updatedAt: repo.updated_at,
     }));
   } catch (error) {
-    console.error('Error searching repos:', error);
+    console.error('Error searching user repos:', error);
     return [];
   }
 }
 
 /**
- * Search GitHub issues and PRs
+ * Get user's repos and filter by query
  */
-async function searchIssues(
+async function getUserReposFiltered(
   accessToken: string,
   query: string,
   limit: number
 ): Promise<GitHubSearchResult[]> {
   try {
-    const searchUrl = `https://api.github.com/search/issues?q=${encodeURIComponent(query)}&per_page=${limit}&sort=updated`;
+    const res = await fetch(`https://api.github.com/user/repos?per_page=100&sort=updated`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      },
+    });
+
+    if (!res.ok) return [];
+
+    const repos = await res.json();
+    const queryLower = query.toLowerCase();
+    
+    // Filter repos that match the query
+    const filtered = repos.filter((repo: any) => {
+      const searchText = `${repo.name} ${repo.description || ''} ${repo.language || ''}`.toLowerCase();
+      return searchText.includes(queryLower);
+    });
+
+    return filtered.slice(0, limit).map((repo: any) => ({
+      id: repo.id.toString(),
+      type: 'repo' as const,
+      title: repo.full_name,
+      url: repo.html_url,
+      content: `Repository: ${repo.full_name}\nDescription: ${repo.description || 'No description'}\nLanguage: ${repo.language || 'N/A'}\nStars: ${repo.stargazers_count}\nLast updated: ${repo.updated_at}`,
+      updatedAt: repo.updated_at,
+    }));
+  } catch (error) {
+    console.error('Error fetching user repos:', error);
+    return [];
+  }
+}
+
+/**
+ * Search issues/PRs only in user's own repos
+ */
+async function searchUserIssues(
+  accessToken: string,
+  username: string,
+  query: string,
+  limit: number
+): Promise<GitHubSearchResult[]> {
+  try {
+    // Search issues/PRs involving the user
+    const searchQuery = `${query} involves:${username}`;
+    const searchUrl = `https://api.github.com/search/issues?q=${encodeURIComponent(searchQuery)}&per_page=${limit}&sort=updated`;
     
     const res = await fetch(searchUrl, {
       headers: {
@@ -141,44 +215,7 @@ async function searchIssues(
       };
     });
   } catch (error) {
-    console.error('Error searching issues:', error);
-    return [];
-  }
-}
-
-/**
- * Search GitHub code
- */
-async function searchCode(
-  accessToken: string,
-  query: string,
-  limit: number
-): Promise<GitHubSearchResult[]> {
-  try {
-    const searchUrl = `https://api.github.com/search/code?q=${encodeURIComponent(query)}&per_page=${limit}`;
-    
-    const res = await fetch(searchUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/vnd.github.v3+json',
-      },
-    });
-
-    if (!res.ok) return [];
-
-    const data = await res.json();
-    
-    return (data.items || []).map((item: any) => ({
-      id: item.sha,
-      type: 'file' as const,
-      title: item.path,
-      url: item.html_url,
-      content: `File: ${item.path}\nRepository: ${item.repository.full_name}\n[Code file - view on GitHub]`,
-      repo: item.repository.full_name,
-      updatedAt: new Date().toISOString(),
-    }));
-  } catch (error) {
-    console.error('Error searching code:', error);
+    console.error('Error searching user issues:', error);
     return [];
   }
 }

@@ -24,10 +24,10 @@ async function getGoogleToken(userId: string): Promise<string | null> {
     .single();
 
   if (!integration?.access_token) {
+    console.log('No Google Drive token found for user:', userId);
     return null;
   }
 
-  // TODO: Check if token is expired and refresh if needed
   return integration.access_token;
 }
 
@@ -46,44 +46,108 @@ export async function searchGoogleDrive(
   }
 
   try {
-    // Search for files matching the query
-    const searchQuery = encodeURIComponent(`fullText contains '${query}' and trashed = false`);
-    const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${searchQuery}&pageSize=${limit}&fields=files(id,name,mimeType,webViewLink,modifiedTime)`;
-
-    const searchRes = await fetch(searchUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!searchRes.ok) {
-      console.error('Google Drive search failed:', await searchRes.text());
-      return [];
-    }
-
-    const searchData = await searchRes.json();
-    const files = searchData.files || [];
-
-    const results: DriveSearchResult[] = [];
-
-    for (const file of files) {
-      const content = await getFileContent(accessToken, file.id, file.mimeType);
-      
-      results.push({
-        id: file.id,
-        title: file.name,
-        url: file.webViewLink,
-        mimeType: file.mimeType,
-        content,
-        modifiedTime: file.modifiedTime,
-      });
+    // First try to search by name and content
+    let results = await searchFiles(accessToken, query, limit);
+    
+    // If no results, get recent files instead
+    if (results.length === 0) {
+      console.log('No Google Drive search results, fetching recent files');
+      results = await getRecentFiles(accessToken, limit);
     }
 
     return results;
   } catch (error) {
     console.error('Google Drive search error:', error);
+    // Try to at least get recent files on error
+    try {
+      return await getRecentFiles(accessToken, limit);
+    } catch {
+      return [];
+    }
+  }
+}
+
+/**
+ * Search files by name or content
+ */
+async function searchFiles(
+  accessToken: string,
+  query: string,
+  limit: number
+): Promise<DriveSearchResult[]> {
+  // Search by name OR fullText content
+  const searchQuery = encodeURIComponent(
+    `(name contains '${query}' or fullText contains '${query}') and trashed = false`
+  );
+  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${searchQuery}&pageSize=${limit}&orderBy=modifiedTime desc&fields=files(id,name,mimeType,webViewLink,modifiedTime)`;
+
+  const searchRes = await fetch(searchUrl, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!searchRes.ok) {
+    const errorText = await searchRes.text();
+    console.error('Google Drive search failed:', searchRes.status, errorText);
     return [];
   }
+
+  const searchData = await searchRes.json();
+  const files = searchData.files || [];
+
+  return processFiles(accessToken, files);
+}
+
+/**
+ * Get recent files from Google Drive
+ */
+async function getRecentFiles(
+  accessToken: string,
+  limit: number
+): Promise<DriveSearchResult[]> {
+  const searchUrl = `https://www.googleapis.com/drive/v3/files?pageSize=${limit}&orderBy=modifiedTime desc&fields=files(id,name,mimeType,webViewLink,modifiedTime)&q=trashed = false`;
+
+  const res = await fetch(searchUrl, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!res.ok) {
+    console.error('Google Drive list failed:', res.status);
+    return [];
+  }
+
+  const data = await res.json();
+  const files = data.files || [];
+
+  return processFiles(accessToken, files);
+}
+
+/**
+ * Process files and get content
+ */
+async function processFiles(
+  accessToken: string,
+  files: any[]
+): Promise<DriveSearchResult[]> {
+  const results: DriveSearchResult[] = [];
+
+  for (const file of files) {
+    const content = await getFileContent(accessToken, file.id, file.mimeType, file.name);
+    
+    results.push({
+      id: file.id,
+      title: file.name,
+      url: file.webViewLink || `https://drive.google.com/file/d/${file.id}`,
+      mimeType: file.mimeType,
+      content,
+      modifiedTime: file.modifiedTime,
+    });
+  }
+
+  return results;
 }
 
 /**
@@ -92,28 +156,49 @@ export async function searchGoogleDrive(
 async function getFileContent(
   accessToken: string,
   fileId: string,
-  mimeType: string
+  mimeType: string,
+  fileName: string
 ): Promise<string> {
   try {
-    // For Google Docs, Sheets, Slides - export as plain text
-    if (mimeType.includes('google-apps')) {
-      let exportMimeType = 'text/plain';
-      
-      if (mimeType.includes('spreadsheet')) {
-        exportMimeType = 'text/csv';
-      }
-
-      const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportMimeType)}`;
+    // For Google Docs - export as plain text
+    if (mimeType === 'application/vnd.google-apps.document') {
+      const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
       
       const res = await fetch(exportUrl, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
 
       if (res.ok) {
         const text = await res.text();
-        return text.slice(0, 2000); // Limit content length
+        return `Document: ${fileName}\n\n${text.slice(0, 2000)}`;
+      }
+    }
+    
+    // For Google Sheets - export as CSV
+    if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+      const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
+      
+      const res = await fetch(exportUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (res.ok) {
+        const text = await res.text();
+        return `Spreadsheet: ${fileName}\n\n${text.slice(0, 2000)}`;
+      }
+    }
+
+    // For Google Slides - export as plain text
+    if (mimeType === 'application/vnd.google-apps.presentation') {
+      const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
+      
+      const res = await fetch(exportUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (res.ok) {
+        const text = await res.text();
+        return `Presentation: ${fileName}\n\n${text.slice(0, 2000)}`;
       }
     }
     
@@ -122,23 +207,37 @@ async function getFileContent(
       const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
       
       const res = await fetch(downloadUrl, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
 
       if (res.ok) {
         const text = await res.text();
-        return text.slice(0, 2000);
+        return `File: ${fileName}\n\n${text.slice(0, 2000)}`;
       }
     }
 
-    // For other files, just return file type info
-    return `[File type: ${mimeType}]`;
+    // For PDFs and other files, return metadata
+    return `File: ${fileName} (${mimeType})`;
   } catch (error) {
     console.error('Error fetching file content:', error);
-    return '';
+    return `File: ${fileName}`;
   }
+}
+
+/**
+ * List all files (for general queries)
+ */
+export async function listDriveFiles(
+  userId: string,
+  limit: number = 10
+): Promise<DriveSearchResult[]> {
+  const accessToken = await getGoogleToken(userId);
+  
+  if (!accessToken) {
+    return [];
+  }
+
+  return getRecentFiles(accessToken, limit);
 }
 
 /**
@@ -148,4 +247,3 @@ export async function hasGoogleDriveConnected(userId: string): Promise<boolean> 
   const token = await getGoogleToken(userId);
   return token !== null;
 }
-

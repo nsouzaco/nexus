@@ -1,7 +1,7 @@
 import { searchNotion, hasNotionConnected } from './notion.service';
-import { searchGoogleDrive, hasGoogleDriveConnected } from './google-drive.service';
+import { searchGoogleDrive, hasGoogleDriveConnected, listDriveFiles } from './google-drive.service';
 import { searchGitHub, hasGitHubConnected, getUserRepos } from './github.service';
-import { searchAirtable, hasAirtableConnected } from './airtable.service';
+import { searchAirtable, hasAirtableConnected, getBasesSummary } from './airtable.service';
 
 export interface IntegrationResult {
   source: 'notion' | 'google_drive' | 'github' | 'airtable';
@@ -19,6 +19,24 @@ export interface IntegrationContext {
 }
 
 /**
+ * Detect if query is asking to list/show items rather than search
+ */
+function isListQuery(query: string): boolean {
+  const listPatterns = [
+    /list\s+(my|all|the)/i,
+    /show\s+(my|me|all|the)/i,
+    /what('s| is| are)\s+(in\s+)?(my|the)/i,
+    /get\s+(my|all|the)/i,
+    /(my|all)\s+(files|docs|documents|repos|repositories|bases|tables|pages)/i,
+    /what\s+do\s+i\s+have/i,
+    /what\s+files/i,
+    /recent\s+(files|docs|documents)/i,
+  ];
+  
+  return listPatterns.some(pattern => pattern.test(query));
+}
+
+/**
  * Search all connected integrations for relevant content
  */
 export async function searchIntegrations(
@@ -29,7 +47,7 @@ export async function searchIntegrations(
   const connectedIntegrations: string[] = [];
   const results: IntegrationResult[] = [];
 
-  // Check connected integrations and search in parallel
+  // Check connected integrations
   const [notionConnected, driveConnected, githubConnected, airtableConnected] = await Promise.all([
     hasNotionConnected(userId),
     hasGoogleDriveConnected(userId),
@@ -37,45 +55,30 @@ export async function searchIntegrations(
     hasAirtableConnected(userId),
   ]);
 
+  const isListing = isListQuery(query);
   const searchPromises: Promise<void>[] = [];
-
-  // Notion
-  if (notionConnected) {
-    connectedIntegrations.push('notion');
-    searchPromises.push(
-      searchNotion(userId, query, limitPerSource).then((notionResults) => {
-        for (const result of notionResults) {
-          results.push({
-            source: 'notion',
-            id: result.id,
-            title: result.title,
-            url: result.url,
-            content: result.content,
-            type: result.type,
-            updatedAt: result.lastEdited,
-          });
-        }
-      })
-    );
-  }
 
   // Google Drive
   if (driveConnected) {
     connectedIntegrations.push('google_drive');
     searchPromises.push(
-      searchGoogleDrive(userId, query, limitPerSource).then((driveResults) => {
-        for (const result of driveResults) {
-          results.push({
-            source: 'google_drive',
-            id: result.id,
-            title: result.title,
-            url: result.url,
-            content: result.content,
-            type: result.mimeType,
-            updatedAt: result.modifiedTime,
-          });
-        }
-      })
+      (isListing ? listDriveFiles(userId, limitPerSource + 2) : searchGoogleDrive(userId, query, limitPerSource))
+        .then((driveResults) => {
+          for (const result of driveResults) {
+            results.push({
+              source: 'google_drive',
+              id: result.id,
+              title: result.title,
+              url: result.url,
+              content: result.content,
+              type: result.mimeType,
+              updatedAt: result.modifiedTime,
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('Google Drive error:', err);
+        })
     );
   }
 
@@ -83,19 +86,47 @@ export async function searchIntegrations(
   if (githubConnected) {
     connectedIntegrations.push('github');
     searchPromises.push(
-      searchGitHub(userId, query, limitPerSource).then((githubResults) => {
-        for (const result of githubResults) {
-          results.push({
-            source: 'github',
-            id: result.id,
-            title: result.title,
-            url: result.url,
-            content: result.content,
-            type: result.type,
-            updatedAt: result.updatedAt,
-          });
-        }
-      })
+      (isListing ? getUserRepos(userId, limitPerSource + 2) : searchGitHub(userId, query, limitPerSource))
+        .then((githubResults) => {
+          for (const result of githubResults) {
+            results.push({
+              source: 'github',
+              id: result.id,
+              title: result.title,
+              url: result.url,
+              content: result.content,
+              type: result.type,
+              updatedAt: result.updatedAt,
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('GitHub error:', err);
+        })
+    );
+  }
+
+  // Notion
+  if (notionConnected) {
+    connectedIntegrations.push('notion');
+    searchPromises.push(
+      searchNotion(userId, query, limitPerSource)
+        .then((notionResults) => {
+          for (const result of notionResults) {
+            results.push({
+              source: 'notion',
+              id: result.id,
+              title: result.title,
+              url: result.url,
+              content: result.content,
+              type: result.type,
+              updatedAt: result.lastEdited,
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('Notion error:', err);
+        })
     );
   }
 
@@ -103,18 +134,22 @@ export async function searchIntegrations(
   if (airtableConnected) {
     connectedIntegrations.push('airtable');
     searchPromises.push(
-      searchAirtable(userId, query, limitPerSource).then((airtableResults) => {
-        for (const result of airtableResults) {
-          results.push({
-            source: 'airtable',
-            id: result.id,
-            title: result.title,
-            url: result.url,
-            content: result.content,
-            type: result.type,
-          });
-        }
-      })
+      (isListing ? getBasesSummary(userId) : searchAirtable(userId, query, limitPerSource))
+        .then((airtableResults) => {
+          for (const result of airtableResults) {
+            results.push({
+              source: 'airtable',
+              id: result.id,
+              title: result.title,
+              url: result.url,
+              content: result.content,
+              type: result.type,
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('Airtable error:', err);
+        })
     );
   }
 
@@ -132,35 +167,19 @@ export async function searchIntegrations(
  */
 export function buildIntegrationContextString(context: IntegrationContext): string {
   if (context.results.length === 0) {
-    return '';
+    if (context.connectedIntegrations.length === 0) {
+      return '';
+    }
+    return `Connected integrations: ${context.connectedIntegrations.join(', ')}. No matching content found for this query.`;
   }
 
   const sourceParts = context.results.map((result) => {
-    const sourceLabel = getSourceLabel(result.source);
     return `<source type="${result.source}" title="${result.title}" url="${result.url}">
 ${result.content}
 </source>`;
   });
 
   return sourceParts.join('\n\n');
-}
-
-/**
- * Get human-readable source label
- */
-function getSourceLabel(source: string): string {
-  switch (source) {
-    case 'notion':
-      return 'Notion';
-    case 'google_drive':
-      return 'Google Drive';
-    case 'github':
-      return 'GitHub';
-    case 'airtable':
-      return 'Airtable';
-    default:
-      return source;
-  }
 }
 
 /**
@@ -185,7 +204,6 @@ export async function getConnectedIntegrations(userId: string): Promise<string[]
 
 // Re-export individual services for direct use
 export { searchNotion, hasNotionConnected } from './notion.service';
-export { searchGoogleDrive, hasGoogleDriveConnected } from './google-drive.service';
+export { searchGoogleDrive, hasGoogleDriveConnected, listDriveFiles } from './google-drive.service';
 export { searchGitHub, hasGitHubConnected, getUserRepos } from './github.service';
-export { searchAirtable, hasAirtableConnected } from './airtable.service';
-
+export { searchAirtable, hasAirtableConnected, getBasesSummary } from './airtable.service';
