@@ -1,16 +1,21 @@
 import type { Metadata } from "next"
-import { Outfit } from "next/font/google"
+import { Inter, Playfair_Display } from "next/font/google"
 import "./globals.css"
 import { Toaster } from "@/components/ui/toaster"
 
-const outfit = Outfit({
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-outfit",
+  variable: "--font-sans",
+})
+
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-serif",
 })
 
 export const metadata: Metadata = {
-  title: "Adapt Clone - AI-Powered Business Intelligence",
-  description: "Connect your data sources and ask questions in natural language. Get instant answers with source citations.",
+  title: "Adapt",
+  description: "AI-Powered Business Intelligence",
 }
 
 export default function RootLayout({
@@ -19,8 +24,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${outfit.variable} font-sans antialiased`}>
+    <html lang="en" className="light">
+      <body className={`${inter.variable} ${playfair.variable} font-sans antialiased`}>
         {children}
         <Toaster />
       </body>
