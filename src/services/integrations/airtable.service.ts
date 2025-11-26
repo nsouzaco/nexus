@@ -37,11 +37,12 @@ async function getAirtableToken(userId: string): Promise<string | null> {
 export async function searchAirtable(
   userId: string,
   query: string,
-  limit: number = 5
+  limit: number = 20
 ): Promise<AirtableSearchResult[]> {
   const accessToken = await getAirtableToken(userId);
   
   if (!accessToken) {
+    console.log('Airtable: No access token found');
     return [];
   }
 
@@ -50,13 +51,23 @@ export async function searchAirtable(
   try {
     // Get all bases
     const bases = await getBases(accessToken);
+    console.log('Airtable bases found:', bases.length, bases.map(b => b.name));
+    
+    if (bases.length === 0) {
+      console.log('Airtable: No bases accessible with this token');
+      return [];
+    }
     
     // Search through each base's tables
     for (const base of bases.slice(0, 3)) { // Limit to 3 bases
       const tables = await getTables(accessToken, base.id);
+      console.log(`Airtable tables in ${base.name}:`, tables.map(t => t.name));
       
-      for (const table of tables.slice(0, 3)) { // Limit to 3 tables per base
-        const records = await searchRecords(accessToken, base.id, table.id, query, Math.ceil(limit / 2));
+      // Fetch ALL records from ALL tables
+      for (const table of tables) {
+        // Use table NAME for the API call (works more reliably than ID)
+        const records = await getAllRecords(accessToken, base.id, table.name);
+        console.log(`Airtable records in ${table.name}:`, records.length);
         
         for (const record of records) {
           results.push({
@@ -69,13 +80,10 @@ export async function searchAirtable(
             tableName: table.name,
           });
         }
-        
-        if (results.length >= limit) break;
       }
-      
-      if (results.length >= limit) break;
     }
 
+    console.log('Airtable total results:', results.length);
     return results.slice(0, limit);
   } catch (error) {
     console.error('Airtable search error:', error);
@@ -135,19 +143,16 @@ async function getTables(
 }
 
 /**
- * Search records in a table
+ * Get ALL records from a table
  */
-async function searchRecords(
+async function getAllRecords(
   accessToken: string,
   baseId: string,
-  tableId: string,
-  query: string,
-  limit: number
+  tableName: string
 ): Promise<Array<{ id: string; fields: Record<string, any> }>> {
   try {
-    // Airtable doesn't have a native search, so we fetch records and filter
-    // For a production app, you'd want to use filterByFormula with SEARCH()
-    const url = `https://api.airtable.com/v0/${baseId}/${tableId}?maxRecords=${limit * 2}`;
+    // Use table name (URL encoded) for the API call - fetch up to 100 records
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}?maxRecords=100`;
     
     const res = await fetch(url, {
       headers: {
@@ -155,19 +160,79 @@ async function searchRecords(
       },
     });
 
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`Airtable API error for ${tableName}:`, res.status, errorText);
+      return [];
+    }
 
     const data = await res.json();
     const records = data.records || [];
     
-    // Simple text search through record fields
-    const queryLower = query.toLowerCase();
-    const matchingRecords = records.filter((record: any) => {
-      const fieldsText = JSON.stringify(record.fields).toLowerCase();
-      return fieldsText.includes(queryLower);
+    return records.map((record: any) => ({
+      id: record.id,
+      fields: record.fields,
+    }));
+  } catch (error) {
+    console.error('Error fetching records:', error);
+    return [];
+  }
+}
+
+/**
+ * Search records in a table (with keyword filtering)
+ */
+async function searchRecords(
+  accessToken: string,
+  baseId: string,
+  tableName: string,
+  query: string,
+  limit: number
+): Promise<Array<{ id: string; fields: Record<string, any> }>> {
+  try {
+    // Use table name (URL encoded) for the API call
+    const url = `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}?maxRecords=${limit * 3}`;
+    
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     });
 
-    return matchingRecords.slice(0, limit).map((record: any) => ({
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`Airtable API error for ${tableName}:`, res.status, errorText);
+      return [];
+    }
+
+    const data = await res.json();
+    const records = data.records || [];
+    
+    // Extract keywords from query for flexible matching
+    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    
+    // Score and sort records by relevance
+    const scoredRecords = records.map((record: any) => {
+      const fieldsText = JSON.stringify(record.fields).toLowerCase();
+      let score = 0;
+      
+      // Check for keyword matches
+      for (const word of queryWords) {
+        if (fieldsText.includes(word)) {
+          score += 1;
+        }
+      }
+      
+      return { record, score };
+    });
+    
+    // Sort by score (highest first), then return top results
+    // If no matches, still return some records for context
+    scoredRecords.sort((a, b) => b.score - a.score);
+    
+    const topRecords = scoredRecords.slice(0, limit);
+    
+    return topRecords.map(({ record }) => ({
       id: record.id,
       fields: record.fields,
     }));
