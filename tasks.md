@@ -176,6 +176,44 @@ CREATE POLICY "Users can access messages from own conversations" ON messages
 
 ---
 
+## Phase 2 (v2): Pinecone RAG for File Upload ✅ COMPLETE
+
+### Infrastructure
+- [x] Install dependencies (pinecone, pdf-parse, mammoth, papaparse, uuid)
+- [x] Create Pinecone client utility (`src/lib/pinecone/client.ts`)
+- [x] Create database migration for files and chunks tables
+- [ ] Create Pinecone index (requires account)
+- [ ] Create Supabase storage bucket
+
+### Services
+- [x] Create TypeScript types (`src/types/files.ts`, `src/types/pinecone.ts`)
+- [x] Create EmbeddingService for OpenAI embeddings
+- [x] Create ChunkingService for document splitting
+- [x] Create PineconeService for vector operations
+- [x] Create FileService for file management
+- [x] Create RAGService for retrieval orchestration
+- [x] Create DocumentParserService (PDF, Word, CSV, JSON, TXT, MD)
+
+### API Routes
+- [x] POST `/api/files/upload` - Upload file
+- [x] GET `/api/files` - List user files
+- [x] GET `/api/files/[id]` - Get file details
+- [x] DELETE `/api/files/[id]` - Delete file
+- [x] POST `/api/files/[id]` - Retry processing
+
+### UI Components
+- [x] FileUpload component with drag-and-drop
+- [x] FileList component with status and actions
+- [x] AlertDialog component
+- [x] Tabs component
+- [x] Add Files tab to dashboard
+
+### Remaining
+- [ ] Integrate RAG into chat API endpoint
+- [ ] Update chat UI to show file citations
+
+---
+
 ## Priority Order
 1. **High**: Supabase setup, Authentication, Dashboard
 2. **Medium**: Integrations, Chat Interface, AI Query Engine
@@ -186,3 +224,4 @@ CREATE POLICY "Users can access messages from own conversations" ON messages
 - RLS policies are critical for security
 - Start with one integration (Notion) and expand
 - Use streaming for better AI response UX
+- RAG system requires PINECONE_API_KEY and PINECONE_INDEX_NAME env vars
