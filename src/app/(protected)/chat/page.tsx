@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { ArrowUp, Plus, Loader2, FileText, User, Bot, AlertCircle } from "lucide-react"
+import { ArrowUp, Plus, Loader2, FileText, User, Bot, MessageSquare, PanelLeftClose, PanelLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -25,12 +24,21 @@ interface Message {
   }>
 }
 
+interface Conversation {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
 export default function ChatPage() {
-  const router = useRouter()
   const [input, setInput] = useState("")
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [showUploadDialog, setShowUploadDialog] = useState(false)
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -40,6 +48,46 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Fetch conversations on mount
+  useEffect(() => {
+    fetchConversations()
+  }, [])
+
+  const fetchConversations = async () => {
+    try {
+      const res = await fetch("/api/chat")
+      if (res.ok) {
+        const data = await res.json()
+        setConversations(data.conversations || [])
+      }
+    } catch (error) {
+      console.error("Error fetching conversations:", error)
+    }
+  }
+
+  const loadConversation = useCallback(async (convId: string) => {
+    try {
+      const res = await fetch(`/api/chat/${convId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setMessages(data.messages.map((m: { id: string; role: string; content: string; sources?: unknown }) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          sources: m.sources as Message["sources"],
+        })))
+        setConversationId(convId)
+      }
+    } catch (error) {
+      console.error("Error loading conversation:", error)
+    }
+  }, [])
+
+  const startNewChat = () => {
+    setMessages([])
+    setConversationId(null)
+  }
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return
@@ -58,13 +106,23 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage.content }),
+        body: JSON.stringify({ 
+          message: userMessage.content,
+          conversationId,
+        }),
       })
 
       const data = await res.json()
 
       if (!res.ok) {
         throw new Error(data.error || "Failed to send message")
+      }
+
+      // Update conversation ID if this is a new conversation
+      if (data.conversationId && !conversationId) {
+        setConversationId(data.conversationId)
+        // Refresh conversations list
+        fetchConversations()
       }
 
       const assistantMessage: Message = {
@@ -96,122 +154,199 @@ export default function ChatPage() {
     })
   }
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+    
+    if (days === 0) return "Today"
+    if (days === 1) return "Yesterday"
+    if (days < 7) return `${days} days ago`
+    return date.toLocaleDateString()
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Messages Area */}
-      {messages.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
-          <h1 className="text-2xl font-medium mb-4 text-foreground">
-            How can I help you today?
-          </h1>
-          <p className="text-muted-foreground text-center max-w-md">
-            Ask questions about your uploaded files and connected integrations.
-            Click the + button to upload a document.
-          </p>
+    <div className="flex h-screen bg-background">
+      {/* Sidebar */}
+      <div className={cn(
+        "border-r bg-muted/30 flex flex-col transition-all duration-300",
+        sidebarOpen ? "w-64" : "w-0 overflow-hidden"
+      )}>
+        <div className="p-4 border-b">
+          <Button 
+            onClick={startNewChat} 
+            className="w-full gap-2"
+            variant="outline"
+          >
+            <Plus className="w-4 h-4" />
+            New Chat
+          </Button>
         </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto p-4 space-y-6">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn(
-                  "flex gap-4",
-                  message.role === "user" ? "justify-end" : "justify-start"
-                )}
-              >
-                {message.role === "assistant" && (
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <Bot className="w-4 h-4 text-primary" />
-                  </div>
-                )}
-                <div
+        <div className="flex-1 overflow-y-auto p-2">
+          {conversations.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No conversations yet
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {conversations.map((conv) => (
+                <button
+                  key={conv.id}
+                  onClick={() => loadConversation(conv.id)}
                   className={cn(
-                    "max-w-[80%] rounded-2xl px-4 py-3",
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
+                    "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors",
+                    "hover:bg-muted",
+                    conversationId === conv.id && "bg-muted"
                   )}
                 >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.sources && message.sources.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-border/50">
-                      <p className="text-xs text-muted-foreground mb-2">Sources:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {message.sources.map((source, idx) => (
-                          <span
-                            key={idx}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-background text-xs"
-                          >
-                            <FileText className="w-3 h-3" />
-                            {source.name}
-                          </span>
-                        ))}
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <span className="truncate">{conv.title}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 pl-6">
+                    {formatDate(conv.updated_at)}
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <div className="h-14 border-b flex items-center px-4 gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >
+            {sidebarOpen ? (
+              <PanelLeftClose className="w-5 h-5" />
+            ) : (
+              <PanelLeft className="w-5 h-5" />
+            )}
+          </Button>
+          <span className="font-semibold">Adapt</span>
+        </div>
+
+        {/* Messages Area */}
+        {messages.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8">
+            <h1 className="text-2xl font-medium mb-4 text-foreground">
+              How can I help you today?
+            </h1>
+            <p className="text-muted-foreground text-center max-w-md">
+              Ask questions about your uploaded files and connected integrations.
+              Click the + button to upload a document.
+            </p>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto p-4 space-y-6">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex gap-4",
+                    message.role === "user" ? "justify-end" : "justify-start"
+                  )}
+                >
+                  {message.role === "assistant" && (
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <Bot className="w-4 h-4 text-primary" />
+                    </div>
+                  )}
+                  <div
+                    className={cn(
+                      "max-w-[80%] rounded-2xl px-4 py-3",
+                      message.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
+                    )}
+                  >
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    {message.sources && message.sources.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-border/50">
+                        <p className="text-xs text-muted-foreground mb-2">Sources:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {message.sources.map((source, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-background text-xs"
+                            >
+                              <FileText className="w-3 h-3" />
+                              {source.name}
+                            </span>
+                          ))}
+                        </div>
                       </div>
+                    )}
+                  </div>
+                  {message.role === "user" && (
+                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                      <User className="w-4 h-4 text-primary-foreground" />
                     </div>
                   )}
                 </div>
-                {message.role === "user" && (
-                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-                    <User className="w-4 h-4 text-primary-foreground" />
+              ))}
+              {isLoading && (
+                <div className="flex gap-4 justify-start">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-primary" />
                   </div>
-                )}
-              </div>
-            ))}
-            {isLoading && (
-              <div className="flex gap-4 justify-start">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Bot className="w-4 h-4 text-primary" />
+                  <div className="bg-muted rounded-2xl px-4 py-3">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
                 </div>
-                <div className="bg-muted rounded-2xl px-4 py-3">
-                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
+              )}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Input Area */}
-      <div className="p-4 pb-6 border-t bg-background">
-        <div className="max-w-3xl mx-auto relative">
-          <div className="relative flex items-center">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="absolute left-3 h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-transparent"
-              onClick={() => setShowUploadDialog(true)}
-              title="Upload a file"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder="Ask anything about your files..."
-              disabled={isLoading}
-              className="w-full h-12 pl-12 pr-12 py-3 rounded-full border border-input focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring bg-background text-[15px] placeholder:text-muted-foreground shadow-sm transition-shadow hover:shadow-md focus:shadow-md disabled:opacity-50"
-            />
-            <Button 
-              size="icon"
-              onClick={handleSend}
-              className={cn(
-                "absolute right-2 h-8 w-8 rounded-full transition-all duration-200",
-                input.trim() && !isLoading
-                  ? "bg-primary hover:bg-primary/90 text-primary-foreground" 
-                  : "bg-muted text-muted-foreground"
-              )}
-              disabled={!input.trim() || isLoading}
-            >
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <ArrowUp className="h-4 w-4" />
-              )}
-            </Button>
+        {/* Input Area */}
+        <div className="p-4 pb-6 border-t bg-background">
+          <div className="max-w-3xl mx-auto relative">
+            <div className="relative flex items-center">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="absolute left-3 h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-transparent"
+                onClick={() => setShowUploadDialog(true)}
+                title="Upload a file"
+              >
+                <Plus className="h-5 w-5" />
+              </Button>
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+                placeholder="Ask anything about your files..."
+                disabled={isLoading}
+                className="w-full h-12 pl-12 pr-12 py-3 rounded-full border border-input focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring bg-background text-[15px] placeholder:text-muted-foreground shadow-sm transition-shadow hover:shadow-md focus:shadow-md disabled:opacity-50"
+              />
+              <Button 
+                size="icon"
+                onClick={handleSend}
+                className={cn(
+                  "absolute right-2 h-8 w-8 rounded-full transition-all duration-200",
+                  input.trim() && !isLoading
+                    ? "bg-primary hover:bg-primary/90 text-primary-foreground" 
+                    : "bg-muted text-muted-foreground"
+                )}
+                disabled={!input.trim() || isLoading}
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
