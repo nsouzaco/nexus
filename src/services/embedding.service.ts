@@ -19,6 +19,7 @@ function getOpenAIClient(): OpenAI {
 
 // Embedding model configuration
 const EMBEDDING_MODEL = 'text-embedding-3-small';
+const EMBEDDING_DIMENSIONS = 1024; // Match Pinecone index dimensions
 const MAX_TOKENS_PER_REQUEST = 8191; // Model limit
 const BATCH_SIZE = 100; // Max texts per batch request
 
@@ -41,6 +42,7 @@ export async function generateEmbedding(text: string): Promise<EmbeddingResult> 
   const response = await client.embeddings.create({
     model: EMBEDDING_MODEL,
     input: text,
+    dimensions: EMBEDDING_DIMENSIONS,
   });
 
   return {
@@ -64,6 +66,7 @@ export async function generateEmbeddings(texts: string[]): Promise<BatchEmbeddin
     const response = await client.embeddings.create({
       model: EMBEDDING_MODEL,
       input: batch,
+      dimensions: EMBEDDING_DIMENSIONS,
     });
 
     // Map results to maintain order

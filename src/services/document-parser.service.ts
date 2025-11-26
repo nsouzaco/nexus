@@ -1,5 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse');
 import mammoth from 'mammoth';
 import Papa from 'papaparse';
 import { SupportedMimeType, SUPPORTED_FILE_TYPES } from '@/types/files';
@@ -46,14 +44,20 @@ export async function parseDocument(
  * Parse PDF document
  */
 async function parsePDF(buffer: Buffer): Promise<ParsedDocument> {
-  const data = await pdfParse(buffer);
+  // Dynamic import - pdf-parse v2 API
+  const { PDFParse } = await import('pdf-parse');
+  
+  const parser = new PDFParse({ data: buffer });
+  const result = await parser.getText();
+  const info = await parser.getInfo();
+  await parser.destroy();
 
   return {
-    text: data.text,
+    text: result.text,
     metadata: {
-      pageCount: data.numpages,
-      wordCount: data.text.split(/\s+/).filter(Boolean).length,
-      charCount: data.text.length,
+      pageCount: info.numPages,
+      wordCount: result.text.split(/\s+/).filter(Boolean).length,
+      charCount: result.text.length,
     },
   };
 }

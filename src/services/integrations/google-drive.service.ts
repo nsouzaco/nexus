@@ -15,22 +15,36 @@ interface DriveSearchResult {
 async function getGoogleToken(userId: string): Promise<string | null> {
   const supabase = await createClient();
   
+  // Check for active OR expired status (we'll try to refresh expired)
   const { data: integration, error } = await supabase
     .from('integrations')
-    .select('access_token, refresh_token, expires_at')
+    .select('access_token, refresh_token, expires_at, status')
     .eq('user_id', userId)
     .eq('provider', 'google_drive')
-    .eq('status', 'active')
+    .in('status', ['active', 'expired'])
     .single();
 
   if (error) {
-    console.log('Error fetching Google Drive integration:', error.message);
+    console.log('No Google Drive integration found for user');
     return null;
   }
 
   if (!integration?.access_token) {
-    console.log('No Google Drive token found for user:', userId);
+    console.log('No Google Drive token found for user');
     return null;
+  }
+
+  // If status is expired, try to refresh one more time
+  if (integration.status === 'expired') {
+    console.log('Google Drive token expired, attempting refresh');
+    if (integration.refresh_token) {
+      const newToken = await refreshGoogleToken(userId, integration.refresh_token);
+      if (newToken) {
+        return newToken;
+      }
+    }
+    console.log('Google Drive refresh failed - user must reconnect from Dashboard');
+    return null; // Don't return expired token
   }
 
   // Check if token is expired
@@ -49,12 +63,31 @@ async function getGoogleToken(userId: string): Promise<string | null> {
         }
       }
       
-      // If refresh failed, still try the old token
-      console.log('Token refresh failed, trying existing token');
+      // If refresh failed and token is actually expired, return null
+      if (expiresAt.getTime() < now.getTime()) {
+        console.log('Token expired and refresh failed - returning null');
+        return null;
+      }
+      
+      // Token not yet expired, try existing token
+      console.log('Token refresh failed but not yet expired, trying existing token');
     }
   }
 
   return integration.access_token;
+}
+
+/**
+ * Mark integration as expired (needs re-authentication)
+ */
+async function markIntegrationExpired(userId: string): Promise<void> {
+  const supabase = await createClient();
+  await supabase
+    .from('integrations')
+    .update({ status: 'expired' })
+    .eq('user_id', userId)
+    .eq('provider', 'google_drive');
+  console.log('Google Drive marked as expired - user needs to reconnect');
 }
 
 /**
@@ -65,7 +98,8 @@ async function refreshGoogleToken(userId: string, refreshToken: string): Promise
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    console.error('Google OAuth credentials not configured');
+    console.error('Google OAuth credentials not configured - user needs to reconnect Google Drive');
+    await markIntegrationExpired(userId);
     return null;
   }
 
@@ -84,7 +118,13 @@ async function refreshGoogleToken(userId: string, refreshToken: string): Promise
     });
 
     if (!response.ok) {
-      console.error('Failed to refresh Google token:', await response.text());
+      const errorText = await response.text();
+      console.error('Failed to refresh Google token:', errorText);
+      
+      // If refresh token is invalid, mark as expired
+      if (response.status === 400 || response.status === 401) {
+        await markIntegrationExpired(userId);
+      }
       return null;
     }
 
@@ -101,6 +141,7 @@ async function refreshGoogleToken(userId: string, refreshToken: string): Promise
       .update({
         access_token: data.access_token,
         expires_at: expiresAt,
+        status: 'active', // Ensure status is active after successful refresh
       })
       .eq('user_id', userId)
       .eq('provider', 'google_drive');
@@ -109,6 +150,7 @@ async function refreshGoogleToken(userId: string, refreshToken: string): Promise
     return data.access_token;
   } catch (error) {
     console.error('Error refreshing Google token:', error);
+    await markIntegrationExpired(userId);
     return null;
   }
 }
@@ -323,9 +365,19 @@ export async function listDriveFiles(
 }
 
 /**
- * Check if user has Google Drive connected
+ * Check if user has Google Drive connected and working
  */
 export async function hasGoogleDriveConnected(userId: string): Promise<boolean> {
-  const token = await getGoogleToken(userId);
-  return token !== null;
+  const supabase = await createClient();
+  
+  // Only return true if status is 'active' (not 'needs_reauth')
+  const { data: integration } = await supabase
+    .from('integrations')
+    .select('status')
+    .eq('user_id', userId)
+    .eq('provider', 'google_drive')
+    .eq('status', 'active')
+    .single();
+
+  return integration !== null;
 }
