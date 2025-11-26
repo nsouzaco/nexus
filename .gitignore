@@ -45,6 +45,9 @@ supabase/.temp/
 # Testing
 coverage/
 
+# Scripts (local dev utilities)
+scripts/
+
 # Misc
 *.log
 
