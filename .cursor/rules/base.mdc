@@ -1,0 +1,66 @@
+---
+description: Core project rules for Adapt Clone
+globs: **/*
+---
+
+# Adapt Clone Project Rules
+
+## Project Overview
+AI-powered business intelligence tool connecting to Notion, Google Drive, Airtable, and GitHub.
+
+## Tech Stack
+- Next.js 14 (App Router)
+- TypeScript
+- Tailwind CSS + shadcn/ui
+- Prisma + PostgreSQL
+- NextAuth.js
+- OpenAI GPT-4o
+
+## Coding Standards
+
+### TypeScript
+- Use strict TypeScript with proper type annotations
+- Define interfaces for all data structures
+- Avoid `any` type - use `unknown` if truly dynamic
+
+### React/Next.js
+- Use Server Components by default, Client Components only when needed
+- Use `"use client"` directive explicitly when required
+- Prefer server actions for form submissions
+- Use Next.js Image component for images
+
+### Styling
+- Use Tailwind CSS utility classes
+- Use shadcn/ui components as the base
+- Follow mobile-first responsive design
+- Use CSS variables for theming
+
+### API Routes
+- Validate all inputs
+- Return consistent error responses
+- Use proper HTTP status codes
+- Implement proper error handling
+
+### Security
+- Never log sensitive data (tokens, passwords)
+- Always encrypt tokens at rest
+- Use environment variables for secrets
+- Validate user sessions on protected routes
+
+## File Structure
+```
+src/
+├── app/                 # Next.js App Router pages
+├── components/          # React components
+│   ├── ui/             # shadcn/ui components
+│   └── features/       # Feature-specific components
+├── lib/                # Utilities and helpers
+├── services/           # Business logic and API services
+└── types/              # TypeScript type definitions
+```
+
+## Memory Bank
+Always check `memory-bank/` folder for current project context:
+- `activeContext.md` - Current work focus
+- `progress.md` - What's done and what's left
+- `systemPatterns.md` - Architecture patterns
