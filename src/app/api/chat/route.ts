@@ -77,13 +77,26 @@ export async function POST(request: NextRequest) {
 
     // Retrieve context from both sources in parallel
     const [ragContext, integrationContext] = await Promise.all([
-      retrieveContext(user.id, message),
-      searchIntegrations(user.id, message, 3),
+      retrieveContext(user.id, message).catch(err => {
+        console.error('RAG context error:', err);
+        return { chunks: [], totalTokens: 0, sources: [] };
+      }),
+      searchIntegrations(user.id, message, 5).catch(err => {
+        console.error('Integration search error:', err);
+        return { results: [], connectedIntegrations: [] };
+      }),
     ]);
+
+    // Log what we found
+    console.log('Connected integrations:', integrationContext.connectedIntegrations);
+    console.log('Integration results count:', integrationContext.results.length);
+    console.log('RAG chunks count:', ragContext.chunks.length);
 
     // Build context strings
     const fileContextString = buildContextString(ragContext);
     const integrationContextString = buildIntegrationContextString(integrationContext);
+    
+    console.log('Integration context preview:', integrationContextString.slice(0, 500));
     
     // Build system prompt with both contexts
     const systemPrompt = buildRAGSystemPrompt(fileContextString, integrationContextString);

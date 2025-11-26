@@ -10,12 +10,12 @@ interface DriveSearchResult {
 }
 
 /**
- * Get Google Drive access token for a user
+ * Get Google Drive access token for a user (with auto-refresh)
  */
 async function getGoogleToken(userId: string): Promise<string | null> {
   const supabase = await createClient();
   
-  const { data: integration } = await supabase
+  const { data: integration, error } = await supabase
     .from('integrations')
     .select('access_token, refresh_token, expires_at')
     .eq('user_id', userId)
@@ -23,12 +23,94 @@ async function getGoogleToken(userId: string): Promise<string | null> {
     .eq('status', 'active')
     .single();
 
+  if (error) {
+    console.log('Error fetching Google Drive integration:', error.message);
+    return null;
+  }
+
   if (!integration?.access_token) {
     console.log('No Google Drive token found for user:', userId);
     return null;
   }
 
+  // Check if token is expired
+  if (integration.expires_at) {
+    const expiresAt = new Date(integration.expires_at);
+    const now = new Date();
+    
+    // If token expires in less than 5 minutes, refresh it
+    if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
+      console.log('Google token expired or expiring soon, attempting refresh');
+      
+      if (integration.refresh_token) {
+        const newToken = await refreshGoogleToken(userId, integration.refresh_token);
+        if (newToken) {
+          return newToken;
+        }
+      }
+      
+      // If refresh failed, still try the old token
+      console.log('Token refresh failed, trying existing token');
+    }
+  }
+
   return integration.access_token;
+}
+
+/**
+ * Refresh Google OAuth token
+ */
+async function refreshGoogleToken(userId: string, refreshToken: string): Promise<string | null> {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    console.error('Google OAuth credentials not configured');
+    return null;
+  }
+
+  try {
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Failed to refresh Google token:', await response.text());
+      return null;
+    }
+
+    const data = await response.json();
+    
+    // Update token in database
+    const supabase = await createClient();
+    const expiresAt = data.expires_in 
+      ? new Date(Date.now() + data.expires_in * 1000).toISOString()
+      : null;
+
+    await supabase
+      .from('integrations')
+      .update({
+        access_token: data.access_token,
+        expires_at: expiresAt,
+      })
+      .eq('user_id', userId)
+      .eq('provider', 'google_drive');
+
+    console.log('Google token refreshed successfully');
+    return data.access_token;
+  } catch (error) {
+    console.error('Error refreshing Google token:', error);
+    return null;
+  }
 }
 
 /**
