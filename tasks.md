@@ -1,40 +1,38 @@
 # Adapt Clone - Development Tasks
 
-## Phase 1: Project Setup
-- [ ] Initialize Next.js 14 project with TypeScript and App Router
-- [ ] Configure Tailwind CSS
-- [ ] Install and set up shadcn/ui components
-- [ ] Set up Prisma ORM
-- [ ] Create database schema (Users, Integrations, Conversations, Messages)
-- [ ] Configure NextAuth.js with credentials provider
-- [ ] Create environment variables template (.env.example)
-- [ ] Set up project folder structure
+## Phase 1: Project Setup (Supabase)
+- [x] Initialize Next.js 14 project with TypeScript and App Router
+- [x] Configure Tailwind CSS
+- [x] Install and set up shadcn/ui components
+- [x] Update package.json with Supabase dependencies
+- [x] Create Supabase client utilities (browser + server)
+- [x] Set up Supabase database schema
+- [x] Configure Row Level Security (RLS) policies
+- [x] Create environment variables template
 
-## Phase 2: Authentication
-- [ ] Create signup page with form validation
-- [ ] Create login page with form validation
-- [ ] Implement NextAuth credentials provider
-- [ ] Add password hashing with bcrypt
-- [ ] Create auth API routes
-- [ ] Add protected route middleware
-- [ ] Create user session management
-- [ ] Add logout functionality
+## Phase 2: Authentication (Supabase Auth)
+- [x] Create signup page with Supabase Auth
+- [x] Create login page with Supabase Auth
+- [x] Add auth callback route (/auth/callback)
+- [x] Update middleware for Supabase session handling
+- [x] Create auth helpers (getUser, signOut)
+- [x] Add logout functionality
+- [ ] Test auth flow end-to-end (needs Supabase anon key)
 
 ## Phase 3: Landing Page & Layout
-- [ ] Design and build landing page
-- [ ] Create Navbar component (logo, user menu)
-- [ ] Create responsive layout wrapper
-- [ ] Add dark/light mode support (optional)
-- [ ] Create loading states and skeletons
+- [x] Design and build landing page
+- [x] Create Navbar component (logo, user menu)
+- [x] Create responsive layout wrapper
+- [ ] Add loading states and skeletons
 
 ## Phase 4: Dashboard & Integrations
-- [ ] Create dashboard page layout
-- [ ] Build IntegrationCard component
-- [ ] Create empty state for no integrations
+- [x] Create dashboard page layout
+- [x] Build IntegrationCard component
+- [x] Create empty state for no integrations
 - [ ] Implement Notion OAuth flow
   - [ ] Create connect endpoint
   - [ ] Handle callback and token exchange
-  - [ ] Store encrypted tokens
+  - [ ] Store encrypted tokens in Supabase
 - [ ] Implement Google Drive OAuth flow
   - [ ] Create connect endpoint
   - [ ] Handle callback and token exchange
@@ -71,11 +69,11 @@
 - [ ] Add error handling and rate limiting
 
 ## Phase 6: Chat Interface
-- [ ] Create chat page layout with sidebar
+- [x] Create chat page layout with sidebar
 - [ ] Build Sidebar component (conversation history)
 - [ ] Create ChatMessage component (user/assistant styling)
 - [ ] Build CitationChip component
-- [ ] Create ChatInput component (textarea + send button)
+- [x] Create ChatInput component (textarea + send button)
 - [ ] Add loading indicator for AI responses
 - [ ] Implement message scrolling and auto-scroll
 - [ ] Create new conversation flow
@@ -88,30 +86,103 @@
 - [ ] Add context retrieval from connected sources
 - [ ] Parse and format source citations
 - [ ] Implement streaming responses
-- [ ] Store messages in database
+- [ ] Store messages in Supabase
 - [ ] Add conversation context management
 
 ## Phase 8: Polish & Production
 - [ ] Responsive design testing (desktop + mobile)
 - [ ] Add comprehensive error handling
 - [ ] Create error boundary components
-- [ ] Add toast notifications
+- [x] Add toast notifications
 - [ ] Optimize loading states
 - [ ] Add keyboard shortcuts
 - [ ] Test all user flows end-to-end
-- [ ] Set up Railway deployment
+- [ ] Set up Vercel deployment
 - [ ] Configure production environment variables
 - [ ] Final testing and bug fixes
 
 ---
 
+## Supabase Database Schema
+
+```sql
+-- Profiles (extends auth.users)
+CREATE TABLE profiles (
+  id UUID REFERENCES auth.users(id) PRIMARY KEY,
+  display_name TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Integrations
+CREATE TABLE integrations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  provider TEXT NOT NULL CHECK (provider IN ('notion', 'google_drive', 'airtable', 'github')),
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  expires_at TIMESTAMPTZ,
+  connected_at TIMESTAMPTZ DEFAULT NOW(),
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'expired', 'revoked')),
+  UNIQUE(user_id, provider)
+);
+
+-- Conversations
+CREATE TABLE conversations (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  title TEXT DEFAULT 'New Conversation',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Messages
+CREATE TABLE messages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  sources JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS Policies
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE integrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+-- Profiles: Users can only access their own profile
+CREATE POLICY "Users can access own profile" ON profiles
+  FOR ALL USING (auth.uid() = id);
+
+-- Integrations: Users can only access their own integrations
+CREATE POLICY "Users can access own integrations" ON integrations
+  FOR ALL USING (auth.uid() = user_id);
+
+-- Conversations: Users can only access their own conversations
+CREATE POLICY "Users can access own conversations" ON conversations
+  FOR ALL USING (auth.uid() = user_id);
+
+-- Messages: Users can access messages from their conversations
+CREATE POLICY "Users can access messages from own conversations" ON messages
+  FOR ALL USING (
+    conversation_id IN (
+      SELECT id FROM conversations WHERE user_id = auth.uid()
+    )
+  );
+```
+
+---
+
 ## Priority Order
-1. **High**: Authentication, Dashboard, Integrations
-2. **Medium**: Chat Interface, AI Query Engine
+1. **High**: Supabase setup, Authentication, Dashboard
+2. **Medium**: Integrations, Chat Interface, AI Query Engine
 3. **Low**: Polish, optimizations
 
 ## Notes
+- Supabase project needs to be created first
+- RLS policies are critical for security
 - Start with one integration (Notion) and expand
 - Use streaming for better AI response UX
-- Prioritize mobile-friendly design from the start
-

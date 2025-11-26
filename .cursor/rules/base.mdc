@@ -12,9 +12,9 @@ AI-powered business intelligence tool connecting to Notion, Google Drive, Airtab
 - Next.js 14 (App Router)
 - TypeScript
 - Tailwind CSS + shadcn/ui
-- Prisma + PostgreSQL
-- NextAuth.js
+- Supabase (Postgres + Auth)
 - OpenAI GPT-4o
+- Vercel (deployment)
 
 ## Coding Standards
 
@@ -28,6 +28,12 @@ AI-powered business intelligence tool connecting to Notion, Google Drive, Airtab
 - Use `"use client"` directive explicitly when required
 - Prefer server actions for form submissions
 - Use Next.js Image component for images
+
+### Supabase
+- Use `createServerClient` for server-side operations
+- Use `createBrowserClient` for client-side operations
+- Always check for user session before database operations
+- Use RLS policies for security (never bypass with service role in client code)
 
 ### Styling
 - Use Tailwind CSS utility classes
@@ -46,6 +52,7 @@ AI-powered business intelligence tool connecting to Notion, Google Drive, Airtab
 - Always encrypt tokens at rest
 - Use environment variables for secrets
 - Validate user sessions on protected routes
+- RLS policies on all database tables
 
 ## File Structure
 ```
@@ -55,6 +62,7 @@ src/
 │   ├── ui/             # shadcn/ui components
 │   └── features/       # Feature-specific components
 ├── lib/                # Utilities and helpers
+│   └── supabase/       # Supabase client utilities
 ├── services/           # Business logic and API services
 └── types/              # TypeScript type definitions
 ```
