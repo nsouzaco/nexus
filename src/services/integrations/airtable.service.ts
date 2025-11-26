@@ -226,11 +226,11 @@ async function searchRecords(
     
     // Sort by score (highest first), then return top results
     // If no matches, still return some records for context
-    scoredRecords.sort((a, b) => b.score - a.score);
+    scoredRecords.sort((a: { score: number }, b: { score: number }) => b.score - a.score);
     
     const topRecords = scoredRecords.slice(0, limit);
     
-    return topRecords.map(({ record }) => ({
+    return topRecords.map(({ record }: { record: { id: string; fields: Record<string, unknown> } }) => ({
       id: record.id,
       fields: record.fields,
     }));

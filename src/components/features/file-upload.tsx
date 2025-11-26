@@ -91,6 +91,13 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
         body: formData,
       })
 
+      // Handle non-JSON responses (e.g., "Request Entity Too Large")
+      const contentType = res.headers.get("content-type")
+      if (!contentType?.includes("application/json")) {
+        const text = await res.text()
+        throw new Error(text || `Upload failed with status ${res.status}`)
+      }
+
       const data = await res.json()
 
       if (!res.ok) {
