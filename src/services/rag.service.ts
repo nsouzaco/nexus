@@ -112,18 +112,21 @@ export async function retrieveContext(
 }
 
 /**
- * Build context string for LLM prompt
+ * Build context string for LLM prompt with XML-style source tags
  */
 export function buildContextString(context: RAGContext): string {
   if (context.chunks.length === 0) {
-    return 'No relevant documents found in uploaded files.';
+    return '';
   }
 
-  const contextParts = context.chunks.map((chunk, index) => {
-    return `[Source ${index + 1}: ${chunk.metadata.filename}]\n${chunk.content}`;
+  const contextParts = context.chunks.map((chunk) => {
+    const sourceType = chunk.metadata.source_type === 'file_upload' ? 'uploaded_file' : chunk.metadata.source_type;
+    return `<source type="${sourceType}" title="${chunk.metadata.filename}">
+${chunk.content}
+</source>`;
   });
 
-  return contextParts.join('\n\n---\n\n');
+  return contextParts.join('\n\n');
 }
 
 /**
