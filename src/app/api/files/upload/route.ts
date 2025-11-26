@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { uploadFile, processFile } from '@/services/file.service';
-import { isSupportedFileType, MAX_FILE_SIZE, SUPPORTED_FILE_TYPES } from '@/types/files';
+import { processFile } from '@/services/file.service';
+import { isSupportedFileType, MAX_FILE_SIZE, SUPPORTED_FILE_TYPES, FileStatus } from '@/types/files';
 
+// Accept JSON metadata (file already uploaded to Supabase Storage from client)
 export async function POST(request: NextRequest) {
   try {
     // Check authentication
@@ -16,19 +17,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse multipart form data
-    const formData = await request.formData();
-    const file = formData.get('file') as File | null;
+    // Parse JSON body (file metadata, not the actual file)
+    const body = await request.json();
+    const { fileId, filename, originalName, fileType, fileSize, storagePath } = body;
 
-    if (!file) {
+    if (!fileId || !filename || !originalName || !fileType || !storagePath) {
       return NextResponse.json(
-        { error: 'No file provided' },
+        { error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
     // Validate file type
-    if (!isSupportedFileType(file.type)) {
+    if (!isSupportedFileType(fileType)) {
       const supportedTypes = Object.values(SUPPORTED_FILE_TYPES)
         .map((t) => t.extension)
         .join(', ');
@@ -39,19 +40,31 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
+    if (fileSize > MAX_FILE_SIZE) {
       return NextResponse.json(
         { error: `File too large. Maximum size is ${MAX_FILE_SIZE / 1024 / 1024}MB` },
         { status: 400 }
       );
     }
 
-    // Upload file
-    const { fileId, error: uploadError } = await uploadFile(user.id, file);
+    // Create file record in database
+    const { error: dbError } = await supabase
+      .from('files')
+      .insert({
+        id: fileId,
+        user_id: user.id,
+        filename,
+        original_name: originalName,
+        file_type: fileType,
+        file_size: fileSize,
+        storage_path: storagePath,
+        status: 'pending' as FileStatus,
+      });
 
-    if (uploadError || !fileId) {
+    if (dbError) {
+      console.error('Database insert error:', dbError);
       return NextResponse.json(
-        { error: uploadError || 'Failed to upload file' },
+        { error: 'Failed to create file record' },
         { status: 500 }
       );
     }
@@ -63,7 +76,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       id: fileId,
-      filename: file.name,
+      filename: originalName,
       status: 'pending',
       message: 'File uploaded successfully. Processing will begin shortly.',
     });

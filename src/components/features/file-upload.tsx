@@ -8,6 +8,8 @@ import { toast } from "@/components/ui/use-toast"
 import { cn } from "@/lib/utils"
 import { Upload, FileText, Loader2, X, AlertCircle } from "lucide-react"
 import { SUPPORTED_FILE_TYPES, MAX_FILE_SIZE, isSupportedFileType } from "@/types/files"
+import { createClient } from "@/lib/supabase/client"
+import { v4 as uuidv4 } from "uuid"
 
 interface FileUploadProps {
   onUploadComplete?: () => void
@@ -83,15 +85,46 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
     setError(null)
 
     try {
-      const formData = new FormData()
-      formData.append("file", selectedFile)
+      const supabase = createClient()
+      
+      // Get current user
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError || !user) {
+        throw new Error("Please sign in to upload files")
+      }
 
+      // Generate file ID and path
+      const fileId = uuidv4()
+      const filename = `${fileId}-${selectedFile.name}`
+      const storagePath = `${user.id}/${filename}`
+
+      // Upload directly to Supabase Storage (bypasses Vercel's 4.5MB limit)
+      const { error: uploadError } = await supabase.storage
+        .from("user-files")
+        .upload(storagePath, selectedFile, {
+          contentType: selectedFile.type,
+          upsert: false,
+        })
+
+      if (uploadError) {
+        console.error("Storage upload error:", uploadError)
+        throw new Error("Failed to upload file to storage")
+      }
+
+      // Create file record via API (small payload, just metadata)
       const res = await fetch("/api/files/upload", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileId,
+          filename,
+          originalName: selectedFile.name,
+          fileType: selectedFile.type,
+          fileSize: selectedFile.size,
+          storagePath,
+        }),
       })
 
-      // Handle non-JSON responses (e.g., "Request Entity Too Large")
       const contentType = res.headers.get("content-type")
       if (!contentType?.includes("application/json")) {
         const text = await res.text()
@@ -101,6 +134,8 @@ export function FileUpload({ onUploadComplete }: FileUploadProps) {
       const data = await res.json()
 
       if (!res.ok) {
+        // Clean up uploaded file if record creation failed
+        await supabase.storage.from("user-files").remove([storagePath])
         throw new Error(data.error || "Failed to upload file")
       }
 
