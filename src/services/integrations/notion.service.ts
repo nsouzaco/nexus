@@ -259,3 +259,199 @@ export async function hasNotionConnected(userId: string): Promise<boolean> {
   return notion !== null;
 }
 
+// ============================================================================
+// Write Operations
+// ============================================================================
+
+interface NotionPageResult {
+  id: string;
+  url: string;
+  title: string;
+}
+
+interface NotionWriteError {
+  error: string;
+}
+
+/**
+ * Convert markdown content to Notion blocks
+ */
+function markdownToNotionBlocks(content: string): any[] {
+  const lines = content.split('\n');
+  const blocks: any[] = [];
+  
+  for (const line of lines) {
+    if (!line.trim()) {
+      continue; // Skip empty lines
+    }
+    
+    // Handle headers
+    if (line.startsWith('### ')) {
+      blocks.push({
+        object: 'block',
+        type: 'heading_3',
+        heading_3: {
+          rich_text: [{ type: 'text', text: { content: line.slice(4) } }],
+        },
+      });
+    } else if (line.startsWith('## ')) {
+      blocks.push({
+        object: 'block',
+        type: 'heading_2',
+        heading_2: {
+          rich_text: [{ type: 'text', text: { content: line.slice(3) } }],
+        },
+      });
+    } else if (line.startsWith('# ')) {
+      blocks.push({
+        object: 'block',
+        type: 'heading_1',
+        heading_1: {
+          rich_text: [{ type: 'text', text: { content: line.slice(2) } }],
+        },
+      });
+    } 
+    // Handle bullet points
+    else if (line.startsWith('- ') || line.startsWith('* ')) {
+      blocks.push({
+        object: 'block',
+        type: 'bulleted_list_item',
+        bulleted_list_item: {
+          rich_text: [{ type: 'text', text: { content: line.slice(2) } }],
+        },
+      });
+    }
+    // Handle numbered lists
+    else if (/^\d+\.\s/.test(line)) {
+      blocks.push({
+        object: 'block',
+        type: 'numbered_list_item',
+        numbered_list_item: {
+          rich_text: [{ type: 'text', text: { content: line.replace(/^\d+\.\s/, '') } }],
+        },
+      });
+    }
+    // Handle checkboxes
+    else if (line.startsWith('- [ ] ') || line.startsWith('- [x] ')) {
+      const checked = line.startsWith('- [x] ');
+      blocks.push({
+        object: 'block',
+        type: 'to_do',
+        to_do: {
+          rich_text: [{ type: 'text', text: { content: line.slice(6) } }],
+          checked,
+        },
+      });
+    }
+    // Handle code blocks (simplified - single line)
+    else if (line.startsWith('`') && line.endsWith('`') && line.length > 2) {
+      blocks.push({
+        object: 'block',
+        type: 'code',
+        code: {
+          rich_text: [{ type: 'text', text: { content: line.slice(1, -1) } }],
+          language: 'plain text',
+        },
+      });
+    }
+    // Handle blockquotes
+    else if (line.startsWith('> ')) {
+      blocks.push({
+        object: 'block',
+        type: 'quote',
+        quote: {
+          rich_text: [{ type: 'text', text: { content: line.slice(2) } }],
+        },
+      });
+    }
+    // Default to paragraph
+    else {
+      blocks.push({
+        object: 'block',
+        type: 'paragraph',
+        paragraph: {
+          rich_text: [{ type: 'text', text: { content: line } }],
+        },
+      });
+    }
+  }
+  
+  return blocks;
+}
+
+/**
+ * Create a new page in Notion
+ */
+export async function createNotionPage(
+  userId: string,
+  title: string,
+  content: string,
+  parentPageId?: string
+): Promise<NotionPageResult | NotionWriteError> {
+  const notion = await getNotionClient(userId);
+  
+  if (!notion) {
+    return { error: 'Notion is not connected' };
+  }
+
+  try {
+    // Convert markdown to Notion blocks
+    const blocks = markdownToNotionBlocks(content);
+    
+    // If no parent specified, search for a workspace to use
+    let parent: { page_id: string } | { workspace: true };
+    
+    if (parentPageId) {
+      parent = { page_id: parentPageId };
+    } else {
+      // Try to find a page the user has access to
+      const searchResult = await notion.search({
+        filter: { property: 'object', value: 'page' },
+        page_size: 1,
+      });
+      
+      if (searchResult.results.length > 0) {
+        // Use the first accessible page as parent
+        parent = { page_id: searchResult.results[0].id };
+      } else {
+        // No accessible pages, try workspace (may fail depending on integration permissions)
+        return { error: 'No accessible pages found in Notion. Please share a page with the Adapt integration first.' };
+      }
+    }
+
+    const page = await notion.pages.create({
+      parent,
+      properties: {
+        title: {
+          title: [
+            {
+              type: 'text',
+              text: { content: title },
+            },
+          ],
+        },
+      },
+      children: blocks.slice(0, 100), // Notion limits to 100 blocks per request
+    });
+
+    const pageAny = page as any;
+    
+    return {
+      id: page.id,
+      url: pageAny.url || `https://notion.so/${page.id.replace(/-/g, '')}`,
+      title,
+    };
+  } catch (error: any) {
+    console.error('Error creating Notion page:', error);
+    
+    if (error.code === 'unauthorized') {
+      return { error: 'Notion access has expired. Please reconnect from the Dashboard.' };
+    }
+    if (error.code === 'object_not_found') {
+      return { error: 'Parent page not found or not accessible.' };
+    }
+    
+    return { error: error.message || 'Failed to create page' };
+  }
+}
+

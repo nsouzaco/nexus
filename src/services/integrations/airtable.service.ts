@@ -299,3 +299,148 @@ export async function hasAirtableConnected(userId: string): Promise<boolean> {
   return token !== null;
 }
 
+// ============================================================================
+// Write Operations
+// ============================================================================
+
+interface AirtableWriteResult {
+  id: string;
+  url: string;
+  fields?: Record<string, unknown>;
+}
+
+interface AirtableWriteError {
+  error: string;
+}
+
+/**
+ * Find base ID by name
+ */
+async function findBaseId(accessToken: string, baseName: string): Promise<string | null> {
+  const bases = await getBases(accessToken);
+  const base = bases.find(b => b.name.toLowerCase() === baseName.toLowerCase());
+  return base?.id || null;
+}
+
+/**
+ * Find table ID by name
+ */
+async function findTableId(accessToken: string, baseId: string, tableName: string): Promise<string | null> {
+  const tables = await getTables(accessToken, baseId);
+  const table = tables.find(t => t.name.toLowerCase() === tableName.toLowerCase());
+  return table?.id || null;
+}
+
+/**
+ * Create a new record in an Airtable table
+ */
+export async function createAirtableRecord(
+  userId: string,
+  baseName: string,
+  tableName: string,
+  fields: Record<string, unknown>
+): Promise<AirtableWriteResult | AirtableWriteError> {
+  const accessToken = await getAirtableToken(userId);
+  
+  if (!accessToken) {
+    return { error: 'Airtable is not connected' };
+  }
+
+  try {
+    // Find base ID
+    const baseId = await findBaseId(accessToken, baseName);
+    if (!baseId) {
+      return { error: `Base "${baseName}" not found` };
+    }
+
+    // Find table ID
+    const tableId = await findTableId(accessToken, baseId, tableName);
+    if (!tableId) {
+      return { error: `Table "${tableName}" not found in base "${baseName}"` };
+    }
+
+    // Create record
+    const res = await fetch(
+      `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields }),
+      }
+    );
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      return { error: errorData.error?.message || 'Failed to create record' };
+    }
+
+    const record = await res.json();
+    
+    return {
+      id: record.id,
+      url: `https://airtable.com/${baseId}/${tableId}/${record.id}`,
+      fields: record.fields,
+    };
+  } catch (error) {
+    console.error('Error creating Airtable record:', error);
+    return { error: 'Failed to create record' };
+  }
+}
+
+/**
+ * Update an existing record in Airtable
+ */
+export async function updateAirtableRecord(
+  userId: string,
+  baseName: string,
+  tableName: string,
+  recordId: string,
+  fields: Record<string, unknown>
+): Promise<AirtableWriteResult | AirtableWriteError> {
+  const accessToken = await getAirtableToken(userId);
+  
+  if (!accessToken) {
+    return { error: 'Airtable is not connected' };
+  }
+
+  try {
+    // Find base ID
+    const baseId = await findBaseId(accessToken, baseName);
+    if (!baseId) {
+      return { error: `Base "${baseName}" not found` };
+    }
+
+    // Update record
+    const res = await fetch(
+      `https://api.airtable.com/v0/${baseId}/${encodeURIComponent(tableName)}/${recordId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fields }),
+      }
+    );
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      return { error: errorData.error?.message || 'Failed to update record' };
+    }
+
+    const record = await res.json();
+    
+    return {
+      id: record.id,
+      url: `https://airtable.com/${baseId}`,
+      fields: record.fields,
+    };
+  } catch (error) {
+    console.error('Error updating Airtable record:', error);
+    return { error: 'Failed to update record' };
+  }
+}
+

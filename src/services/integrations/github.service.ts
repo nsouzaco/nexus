@@ -267,3 +267,77 @@ export async function hasGitHubConnected(userId: string): Promise<boolean> {
   return token !== null;
 }
 
+// ============================================================================
+// Write Operations
+// ============================================================================
+
+interface GitHubIssueResult {
+  number: number;
+  url: string;
+  title: string;
+}
+
+interface GitHubWriteError {
+  error: string;
+}
+
+/**
+ * Create a new issue in a GitHub repository
+ */
+export async function createGitHubIssue(
+  userId: string,
+  repo: string,
+  title: string,
+  body: string,
+  labels?: string[]
+): Promise<GitHubIssueResult | GitHubWriteError> {
+  const accessToken = await getGitHubToken(userId);
+  
+  if (!accessToken) {
+    return { error: 'GitHub is not connected' };
+  }
+
+  try {
+    // Validate repo format
+    if (!repo.includes('/')) {
+      return { error: 'Repository must be in format "owner/repo"' };
+    }
+
+    const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title,
+        body,
+        labels: labels || [],
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      if (res.status === 404) {
+        return { error: `Repository "${repo}" not found or you don't have access` };
+      }
+      if (res.status === 403) {
+        return { error: 'You don\'t have permission to create issues in this repository' };
+      }
+      return { error: errorData.message || 'Failed to create issue' };
+    }
+
+    const issue = await res.json();
+    
+    return {
+      number: issue.number,
+      url: issue.html_url,
+      title: issue.title,
+    };
+  } catch (error) {
+    console.error('Error creating GitHub issue:', error);
+    return { error: 'Failed to create issue' };
+  }
+}
+

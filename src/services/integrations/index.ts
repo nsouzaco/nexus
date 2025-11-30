@@ -203,7 +203,7 @@ export async function getConnectedIntegrations(userId: string): Promise<string[]
 }
 
 // Re-export individual services for direct use
-export { searchNotion, hasNotionConnected } from './notion.service';
+export { searchNotion, hasNotionConnected, createNotionPage } from './notion.service';
 export { searchGoogleDrive, hasGoogleDriveConnected, listDriveFiles } from './google-drive.service';
-export { searchGitHub, hasGitHubConnected, getUserRepos } from './github.service';
-export { searchAirtable, hasAirtableConnected, getBasesSummary } from './airtable.service';
+export { searchGitHub, hasGitHubConnected, getUserRepos, createGitHubIssue } from './github.service';
+export { searchAirtable, hasAirtableConnected, getBasesSummary, createAirtableRecord, updateAirtableRecord } from './airtable.service';
