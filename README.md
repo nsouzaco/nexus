@@ -16,9 +16,10 @@ Adapt unifies your scattered business data—across Notion, Google Drive, Airtab
 **Key capabilities:**
 - 🔍 **Search** across all connected tools simultaneously
 - 📊 **Visualize** data with auto-generated charts
-- ✍️ **Create** records in Airtable, issues in GitHub, pages in Notion
+- ✍️ **Create** records in Airtable, issues in GitHub, pages in Notion, docs in Google Drive
 - 📁 **Upload** documents (PDF, Word, CSV) for semantic search
 - 🌐 **Web search** for external context
+- 📈 **Observability** via Langfuse for agent reasoning traces
 
 ---
 
@@ -92,7 +93,7 @@ Adapt unifies your scattered business data—across Notion, Google Drive, Airtab
 | Service | Auth Method | Capabilities |
 |---------|-------------|--------------|
 | **Notion** | OAuth 2.0 | Search pages/databases, create pages |
-| **Google Drive** | OAuth 2.0 | Search and read files |
+| **Google Drive** | OAuth 2.0 | Search files, create Docs/Sheets/Slides |
 | **Airtable** | Personal Access Token | Search, create, update records |
 | **GitHub** | OAuth 2.0 | Search repos/issues/code, create issues |
 | **File Upload** | Direct upload | PDF, Word, CSV, JSON, TXT, Markdown |
@@ -102,7 +103,7 @@ Adapt unifies your scattered business data—across Notion, Google Drive, Airtab
 
 ## Agent Tools
 
-The AI agent has access to 12 tools for autonomous task execution:
+The AI agent has access to 13 tools for autonomous task execution:
 
 | Tool | Description |
 |------|-------------|
@@ -116,6 +117,7 @@ The AI agent has access to 12 tools for autonomous task execution:
 | `updateAirtableRecord` | Update existing records |
 | `createGitHubIssue` | Create issues in repositories |
 | `createNotionPage` | Create new pages |
+| `createGoogleDriveFile` | Create Google Docs, Sheets, or Slides |
 | `generateChart` | Generate line/bar/area/pie charts |
 | `executeCode` | Sandboxed JavaScript execution |
 
@@ -203,6 +205,11 @@ GITHUB_CLIENT_SECRET=
 
 # Optional: Web Search
 TAVILY_API_KEY=your_tavily_key
+
+# Optional: Langfuse (agent observability)
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASEURL=https://us.cloud.langfuse.com
 ```
 
 ### Database Setup
@@ -253,6 +260,29 @@ All tables have Row Level Security (RLS) policies ensuring users can only access
 - **Token Storage**: OAuth tokens stored encrypted
 - **API Protection**: All API routes validate user session
 - **Sandboxed Execution**: Code execution tool has limited scope
+
+---
+
+## Observability
+
+The app includes **Langfuse** integration for full observability into the AI agent's behavior.
+
+**What's captured:**
+- 🧠 **Agent reasoning** — See the agent's thinking process before each tool call
+- 🔧 **Tool execution traces** — Input arguments and output results for every tool
+- 📊 **Token usage** — Track costs per conversation
+- ⏱️ **Latency breakdown** — Identify slow steps in multi-step flows
+- 👤 **User/session context** — Filter traces by user or conversation
+
+**Why it matters:**
+When a user reports "the AI gave me a wrong answer," you can trace exactly what happened—which tools were called, what data was returned, and how the agent interpreted it. This data is essential for improving agent prompts and debugging edge cases.
+
+**Setup:** Add your Langfuse keys to `.env.local`:
+```env
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASEURL=https://us.cloud.langfuse.com
+```
 
 ---
 
