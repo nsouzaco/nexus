@@ -344,9 +344,12 @@ export default function ChatPage() {
                 )}
               >
                 {message.role === "assistant" && (
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
-                    <Bot className="w-4 h-4 text-primary" />
-                  </div>
+                  // Hide bot avatar when message is loading (empty content)
+                  !(isLoading && message.id === messages[messages.length - 1]?.id && !message.content.trim()) && (
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
+                      <Bot className="w-4 h-4 text-primary" />
+                    </div>
+                  )
                 )}
                 <div
                   className={cn(

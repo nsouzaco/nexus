@@ -17,7 +17,8 @@ import {
 } from '@/services/integrations/notion.service';
 import { 
   searchGoogleDrive, 
-  hasGoogleDriveConnected 
+  hasGoogleDriveConnected,
+  createGoogleDriveFile,
 } from '@/services/integrations/google-drive.service';
 import { retrieveContext } from '@/services/rag.service';
 import { webSearch } from '@/services/web-search.service';
@@ -195,7 +196,7 @@ export function createAgentTools(userId: string) {
 
     // Create Airtable Record
     createAirtableRecord: {
-      description: 'Create a new record in an Airtable table. Use this when the user wants to add new data to Airtable.',
+      description: `Create a NEW record in an Airtable table. IMPORTANT: This adds a new row - it does NOT edit existing records. Only use when user explicitly asks to ADD/CREATE data in Airtable. Requires knowing the exact base name, table name, and field values.`,
       inputSchema: z.object({
         baseName: z.string().describe('Name of the Airtable base'),
         tableName: z.string().describe('Name of the table to create the record in'),
@@ -224,7 +225,7 @@ export function createAgentTools(userId: string) {
 
     // Update Airtable Record
     updateAirtableRecord: {
-      description: 'Update an existing record in Airtable. Use this when the user wants to modify existing data.',
+      description: `Update an EXISTING record in Airtable. IMPORTANT: Requires the exact record ID - never guess. Always search first to find the correct record, then confirm with user before updating.`,
       inputSchema: z.object({
         baseName: z.string().describe('Name of the Airtable base'),
         tableName: z.string().describe('Name of the table'),
@@ -253,7 +254,7 @@ export function createAgentTools(userId: string) {
 
     // Create GitHub Issue
     createGitHubIssue: {
-      description: 'Create a new issue in a GitHub repository. Use this when the user wants to create a bug report, feature request, or task.',
+      description: `Create a NEW issue in a GitHub repository. IMPORTANT: This creates a public issue - confirm the repo, title, and description with user before creating. Requires repo in "owner/repo" format.`,
       inputSchema: z.object({
         repo: z.string().describe('Repository name in format "owner/repo"'),
         title: z.string().describe('Title of the issue'),
@@ -283,7 +284,7 @@ export function createAgentTools(userId: string) {
 
     // Create Notion Page
     createNotionPage: {
-      description: 'Create a new page in Notion. Use this when the user wants to create a new document or note.',
+      description: `Create a NEW page in Notion. IMPORTANT: This creates a brand new page - it does NOT edit existing pages. Only use this when the user explicitly asks to create something in Notion. Always confirm before creating.`,
       inputSchema: z.object({
         title: z.string().describe('Title of the new page'),
         content: z.string().describe('Content/body of the page in markdown format'),
@@ -305,6 +306,37 @@ export function createAgentTools(userId: string) {
           success: true,
           message: `Created page "${title}" in Notion`,
           pageId: result.id,
+          url: result.url,
+        };
+      },
+    },
+
+    // Create Google Drive File
+    createGoogleDriveFile: {
+      description: `Create a NEW file in Google Drive. IMPORTANT: This creates a brand new file - it does NOT edit existing files. Only use this when the user explicitly asks to CREATE a new document/spreadsheet/presentation in Google Drive. Always confirm the file name and type with the user BEFORE calling this tool.`,
+      inputSchema: z.object({
+        title: z.string().describe('Title/name of the NEW file to create'),
+        content: z.string().describe('Content/body for the new file (for documents). Leave empty string for spreadsheets/presentations.'),
+        fileType: z.enum(['document', 'spreadsheet', 'presentation']).optional().describe('Type of file to create: document (Google Doc), spreadsheet (Google Sheet), or presentation (Google Slides). Defaults to document.'),
+      }),
+      execute: async ({ title, content, fileType }: { title: string; content: string; fileType?: 'document' | 'spreadsheet' | 'presentation' }) => {
+        const isConnected = await hasGoogleDriveConnected(userId);
+        if (!isConnected) {
+          return { error: 'Google Drive is not connected. Please connect it from the Dashboard.' };
+        }
+        
+        const result = await createGoogleDriveFile(userId, title, content, fileType || 'document');
+        
+        if ('error' in result) {
+          return { error: result.error };
+        }
+        
+        const fileTypeName = fileType === 'spreadsheet' ? 'spreadsheet' : fileType === 'presentation' ? 'presentation' : 'document';
+        
+        return {
+          success: true,
+          message: `Created NEW ${fileTypeName} "${title}" in Google Drive`,
+          fileId: result.id,
           url: result.url,
         };
       },
@@ -476,6 +508,7 @@ You have access to powerful tools that let you:
 - Update existing Airtable records
 - Create GitHub issues
 - Create Notion pages
+- Create Google Drive files (Docs, Sheets, Slides)
 
 **Analyze & Visualize:**
 - Execute calculations and data analysis
@@ -505,7 +538,30 @@ Example: If user asks "show my projects", search Airtable and look at results wh
 1. **Think before acting:** Consider what information you need and which tool is best suited
 2. **Be efficient:** Use the most direct tool for the task. Don't search multiple sources if one will do.
 3. **Chain when needed:** You can use multiple tools in sequence to complete complex tasks
-4. **Confirm destructive actions:** Before creating or modifying data, confirm with the user
+4. **MANDATORY CONFIRMATION for write operations:** Before creating or modifying ANY data, you MUST:
+   - State exactly what you're about to do (e.g., "I'll create a new Google Doc titled 'X'")
+   - Ask for confirmation if the request is ambiguous
+   - Only proceed if the user's intent is crystal clear
+
+## Write Operation Safety Rules
+
+**NEVER assume** - if the user says "create a file" without specifying WHERE, ASK which service they want (Google Drive, Notion, Airtable, etc.)
+
+**Google Drive specifically:**
+- createGoogleDriveFile creates NEW files only - it cannot edit existing files
+- Always confirm the exact title before creating
+- If user says "Google Drive" or "Drive", use Google Drive tools
+- If user just says "file" or "document" without specifying Google Drive, ASK where they want it
+
+**Notion specifically:**
+- createNotionPage creates NEW pages only
+- If user says "Notion", use Notion tools
+- If user just says "page" or "note" without specifying Notion, ASK where they want it
+
+**Airtable specifically:**
+- createAirtableRecord adds NEW records to existing tables
+- updateAirtableRecord modifies existing records - requires exact record ID
+- Never guess record IDs - always search first if you need to update
 
 ## Response Guidelines
 
@@ -549,9 +605,13 @@ Rules for charts:
 
 1. Never make up data - only report what tools return
 2. Always use the correct tool for the task
-3. If you're unsure which integration has the data, ask the user
-4. For write operations, confirm before proceeding unless the request is explicit
+3. If you're unsure which integration to use, ASK the user - don't guess
+4. **For ALL write operations (create/update):**
+   - If user explicitly names the service AND action (e.g., "create a Google Drive doc called X"), proceed
+   - If ANYTHING is ambiguous (service, name, content), ASK for clarification first
+   - State what you're about to do before doing it
 5. Handle errors gracefully and suggest alternatives
+6. Never edit or delete files without explicit confirmation
 
 ## Response Formatting
 

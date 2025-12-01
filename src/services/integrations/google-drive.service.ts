@@ -381,3 +381,114 @@ export async function hasGoogleDriveConnected(userId: string): Promise<boolean> 
 
   return integration !== null;
 }
+
+/**
+ * Create a new file in Google Drive
+ */
+export async function createGoogleDriveFile(
+  userId: string,
+  title: string,
+  content: string,
+  fileType: 'document' | 'spreadsheet' | 'presentation' = 'document'
+): Promise<{ id: string; url: string } | { error: string }> {
+  const accessToken = await getGoogleToken(userId);
+  
+  if (!accessToken) {
+    return { error: 'Google Drive is not connected or token expired. Please reconnect from the Dashboard.' };
+  }
+
+  try {
+    // Map file type to Google MIME type
+    const mimeTypeMap = {
+      document: 'application/vnd.google-apps.document',
+      spreadsheet: 'application/vnd.google-apps.spreadsheet',
+      presentation: 'application/vnd.google-apps.presentation',
+    };
+    
+    const googleMimeType = mimeTypeMap[fileType];
+    
+    // For documents and presentations, we can upload as text and convert
+    // For spreadsheets, we need to create empty and then update (simplified: just create with title)
+    
+    if (fileType === 'document') {
+      // Create a Google Doc with content using multipart upload
+      const boundary = '-------314159265358979323846';
+      const delimiter = `\r\n--${boundary}\r\n`;
+      const closeDelimiter = `\r\n--${boundary}--`;
+      
+      const metadata = {
+        name: title,
+        mimeType: googleMimeType,
+      };
+      
+      const multipartRequestBody =
+        delimiter +
+        'Content-Type: application/json\r\n\r\n' +
+        JSON.stringify(metadata) +
+        delimiter +
+        'Content-Type: text/plain\r\n\r\n' +
+        content +
+        closeDelimiter;
+      
+      const response = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': `multipart/related; boundary="${boundary}"`,
+          },
+          body: multipartRequestBody,
+        }
+      );
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Google Drive create file error:', response.status, errorText);
+        return { error: `Failed to create file: ${response.status}` };
+      }
+      
+      const data = await response.json();
+      
+      return {
+        id: data.id,
+        url: data.webViewLink || `https://docs.google.com/document/d/${data.id}`,
+      };
+    } else {
+      // For spreadsheets and presentations, create empty file with just metadata
+      const response = await fetch(
+        'https://www.googleapis.com/drive/v3/files?fields=id,webViewLink',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: title,
+            mimeType: googleMimeType,
+          }),
+        }
+      );
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Google Drive create file error:', response.status, errorText);
+        return { error: `Failed to create file: ${response.status}` };
+      }
+      
+      const data = await response.json();
+      const urlPrefix = fileType === 'spreadsheet' 
+        ? 'https://docs.google.com/spreadsheets/d/' 
+        : 'https://docs.google.com/presentation/d/';
+      
+      return {
+        id: data.id,
+        url: data.webViewLink || `${urlPrefix}${data.id}`,
+      };
+    }
+  } catch (error) {
+    console.error('Google Drive create file error:', error);
+    return { error: `Failed to create file: ${error instanceof Error ? error.message : 'Unknown error'}` };
+  }
+}

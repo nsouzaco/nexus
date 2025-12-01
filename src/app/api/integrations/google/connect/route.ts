@@ -24,9 +24,12 @@ export async function GET() {
   authUrl.searchParams.set("client_id", clientId)
   authUrl.searchParams.set("redirect_uri", redirectUri)
   authUrl.searchParams.set("response_type", "code")
-  authUrl.searchParams.set("scope", "https://www.googleapis.com/auth/drive.readonly")
+  // Request both read and write scopes
+  authUrl.searchParams.set("scope", "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file")
   authUrl.searchParams.set("access_type", "offline")
   authUrl.searchParams.set("prompt", "consent")
+  // Include previously granted scopes for incremental authorization
+  authUrl.searchParams.set("include_granted_scopes", "true")
   authUrl.searchParams.set("state", state)
 
   return NextResponse.redirect(authUrl.toString())
