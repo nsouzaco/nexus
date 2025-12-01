@@ -86,6 +86,14 @@ export default function ChatPage() {
   const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading) return
 
+    // Stop voice recording if active
+    if (isRecording) {
+      const recognition = recognitionRef.current
+      recognitionRef.current = null
+      recognition?.stop()
+      setIsRecording(false)
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
