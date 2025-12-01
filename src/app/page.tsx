@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Database, MessageSquare, Search, Zap } from "lucide-react"
+import { ArrowRight, Bot, Database, MessageSquare, Search, User, Zap } from "lucide-react"
 
 export default function LandingPage() {
   return (
@@ -69,37 +69,30 @@ export default function LandingPage() {
             <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-purple-500/5" />
             <div className="relative p-8">
               {/* Mock Chat Interface */}
-              <div className="space-y-4">
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-sm">
-                    U
-                  </div>
-                  <div className="flex-1 bg-muted/50 rounded-2xl rounded-tl-md p-4 max-w-lg">
+              <div className="space-y-6 max-w-3xl mx-auto">
+                {/* User message - aligned right */}
+                <div className="flex gap-3 justify-end">
+                  <div className="rounded-2xl px-4 py-3 bg-primary text-primary-foreground max-w-[85%]">
                     <p className="text-sm">What were the key decisions from last week&apos;s product meeting?</p>
                   </div>
-                </div>
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-400 flex items-center justify-center">
-                    <Zap className="w-4 h-4 text-white" />
+                  <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
+                    <User className="w-4 h-4 text-primary-foreground" />
                   </div>
-                  <div className="flex-1 bg-primary/10 rounded-2xl rounded-tl-md p-4 max-w-2xl">
+                </div>
+                {/* Assistant message - aligned left */}
+                <div className="flex gap-3 justify-start">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="rounded-2xl px-4 py-3 bg-muted max-w-[85%]">
                     <p className="text-sm mb-3">Based on your Notion meeting notes from Nov 20th, here are the key decisions:</p>
-                    <ul className="text-sm space-y-2 text-muted-foreground">
-                      <li className="flex gap-2">
-                        <span className="text-primary">•</span>
-                        Launched v2.0 feature set approved for Q1
-                      </li>
-                      <li className="flex gap-2">
-                        <span className="text-primary">•</span>
-                        Mobile app development postponed to Q2
-                      </li>
-                      <li className="flex gap-2">
-                        <span className="text-primary">•</span>
-                        New pricing tier approved at $29/month
-                      </li>
+                    <ul className="text-sm space-y-1 list-disc pl-4 text-muted-foreground">
+                      <li>Launched v2.0 feature set approved for Q1</li>
+                      <li>Mobile app development postponed to Q2</li>
+                      <li>New pricing tier approved at $29/month</li>
                     </ul>
                     <div className="flex gap-2 mt-4">
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-background/50 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-background/50 text-xs text-muted-foreground border border-border/50">
                         <Database className="w-3 h-3" /> Notion: Product Meeting Notes
                       </span>
                     </div>
