@@ -9,47 +9,26 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  // For internal integration, use the token from environment
-  const notionToken = process.env.NOTION_INTERNAL_TOKEN
+  const clientId = process.env.NOTION_CLIENT_ID
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
 
-  if (!notionToken) {
-    return NextResponse.json({ error: "Notion token not configured" }, { status: 500 })
+  if (!clientId) {
+    return NextResponse.json({ error: "Notion OAuth not configured" }, { status: 500 })
   }
 
-  // Validate the token by making a test request
-  try {
-    const testResponse = await fetch("https://api.notion.com/v1/users/me", {
-      headers: {
-        Authorization: `Bearer ${notionToken}`,
-        "Notion-Version": "2022-06-28",
-      },
-    })
+  // Create state with user ID for the callback
+  const state = Buffer.from(JSON.stringify({ userId: user.id })).toString("base64")
+  
+  // Redirect URI must match what's configured in Notion
+  const redirectUri = `${appUrl}/api/integrations/notion/callback`
 
-    if (!testResponse.ok) {
-      return NextResponse.json({ error: "Invalid Notion token" }, { status: 400 })
-    }
+  // Build Notion OAuth URL
+  const notionAuthUrl = new URL("https://api.notion.com/v1/oauth/authorize")
+  notionAuthUrl.searchParams.set("client_id", clientId)
+  notionAuthUrl.searchParams.set("response_type", "code")
+  notionAuthUrl.searchParams.set("owner", "user")
+  notionAuthUrl.searchParams.set("redirect_uri", redirectUri)
+  notionAuthUrl.searchParams.set("state", state)
 
-    // Store in Supabase
-    const { error: dbError } = await supabase
-      .from("integrations")
-      .upsert({
-        user_id: user.id,
-        provider: "notion",
-        access_token: notionToken,
-        status: "active",
-      }, {
-        onConflict: "user_id,provider",
-      })
-
-    if (dbError) {
-      console.error("Failed to store Notion integration:", dbError)
-      return NextResponse.json({ error: "Failed to save integration" }, { status: 500 })
-    }
-
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-    return NextResponse.redirect(`${appUrl}/dashboard?success=notion_connected`)
-  } catch (err) {
-    console.error("Notion connect error:", err)
-    return NextResponse.json({ error: "Failed to connect to Notion" }, { status: 500 })
-  }
+  return NextResponse.redirect(notionAuthUrl.toString())
 }
