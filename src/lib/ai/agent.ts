@@ -20,6 +20,10 @@ import {
   hasGoogleDriveConnected,
   createGoogleDriveFile,
 } from '@/services/integrations/google-drive.service';
+import { 
+  createPresentation,
+  hasGoogleSlidesConnected,
+} from '@/services/integrations/google-slides.service';
 import { retrieveContext } from '@/services/rag.service';
 import { webSearch } from '@/services/web-search.service';
 
@@ -342,6 +346,38 @@ export function createAgentTools(userId: string) {
       },
     },
 
+    // Create Google Slides Presentation with content
+    createSlidesPresentation: {
+      description: `Create a NEW Google Slides presentation with actual slide content. Use this when the user wants to CREATE a presentation with multiple slides. You provide the title and an array of slides, each with a title and optional body text. This is more powerful than createGoogleDriveFile for presentations because it actually populates the slides with content.`,
+      inputSchema: z.object({
+        title: z.string().describe('Title of the presentation'),
+        slides: z.array(z.object({
+          title: z.string().describe('Title for this slide'),
+          body: z.string().optional().describe('Body text/bullet points for this slide'),
+        })).describe('Array of slides to create. Each slide has a title and optional body text.'),
+      }),
+      execute: async ({ title, slides }: { title: string; slides: Array<{ title: string; body?: string }> }) => {
+        const isConnected = await hasGoogleSlidesConnected(userId);
+        if (!isConnected) {
+          return { error: 'Google is not connected. Please connect it from the Dashboard.' };
+        }
+        
+        const result = await createPresentation(userId, title, slides);
+        
+        if ('error' in result) {
+          return { error: result.error };
+        }
+        
+        return {
+          success: true,
+          message: `Created presentation "${title}" with ${result.slideCount} slides in Google Slides`,
+          presentationId: result.id,
+          url: result.url,
+          slideCount: result.slideCount,
+        };
+      },
+    },
+
     // Generate Chart
     generateChart: {
       description: 'Generate a chart visualization from data. Use this when the user wants to see data visualized as a chart, graph, or plot.',
@@ -509,6 +545,7 @@ You have access to powerful tools that let you:
 - Create GitHub issues
 - Create Notion pages
 - Create Google Drive files (Docs, Sheets, Slides)
+- Create Google Slides presentations with slide content
 
 **Analyze & Visualize:**
 - Execute calculations and data analysis
@@ -552,6 +589,11 @@ Example: If user asks "show my projects", search Airtable and look at results wh
 - Always confirm the exact title before creating
 - If user says "Google Drive" or "Drive", use Google Drive tools
 - If user just says "file" or "document" without specifying Google Drive, ASK where they want it
+
+**Google Slides Presentations:**
+- Use createSlidesPresentation when user wants a presentation with actual slide content
+- You provide an array of slides, each with a title and optional body text
+- This is better than createGoogleDriveFile(type: 'presentation') when you have content to add
 
 **Notion specifically:**
 - createNotionPage creates NEW pages only

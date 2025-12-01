@@ -207,3 +207,4 @@ export { searchNotion, hasNotionConnected, createNotionPage } from './notion.ser
 export { searchGoogleDrive, hasGoogleDriveConnected, listDriveFiles, createGoogleDriveFile } from './google-drive.service';
 export { searchGitHub, hasGitHubConnected, getUserRepos, createGitHubIssue } from './github.service';
 export { searchAirtable, hasAirtableConnected, getBasesSummary, createAirtableRecord, updateAirtableRecord } from './airtable.service';
+export { createPresentation, hasGoogleSlidesConnected } from './google-slides.service';
