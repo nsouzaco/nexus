@@ -17,6 +17,7 @@ Adapt unifies your scattered business data—across Notion, Google Drive, Airtab
 - 🔍 **Search** across all connected tools simultaneously
 - 📊 **Visualize** data with auto-generated charts
 - ✍️ **Create** records in Airtable, issues in GitHub, pages in Notion, docs in Google Drive
+- 🎯 **Generate presentations** with multiple slides via Google Slides API
 - 📁 **Upload** documents (PDF, Word, CSV) for semantic search
 - 🌐 **Web search** for external context
 - 📈 **Observability** via Langfuse for agent reasoning traces
@@ -103,7 +104,7 @@ Adapt unifies your scattered business data—across Notion, Google Drive, Airtab
 
 ## Agent Tools
 
-The AI agent has access to 13 tools for autonomous task execution:
+The AI agent has access to 14 tools for autonomous task execution:
 
 | Tool | Description |
 |------|-------------|
@@ -118,6 +119,7 @@ The AI agent has access to 13 tools for autonomous task execution:
 | `createGitHubIssue` | Create issues in repositories |
 | `createNotionPage` | Create new pages |
 | `createGoogleDriveFile` | Create Google Docs, Sheets, or Slides |
+| `createSlidesPresentation` | Create presentations with slide content via Slides API |
 | `generateChart` | Generate line/bar/area/pie charts |
 | `executeCode` | Sandboxed JavaScript execution |
 
