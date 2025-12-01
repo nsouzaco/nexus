@@ -194,6 +194,9 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Track step count for Langfuse
+    let stepCount = 0;
+
     // Stream the response using Vercel AI SDK
     const result = streamText({
       model: openai('gpt-4o'),
@@ -203,20 +206,79 @@ export async function POST(request: NextRequest) {
       stopWhen: isCasual ? stepCountIs(1) : stepCountIs(5), // Allow multi-step tool use for non-casual messages
       temperature: 0.3,
       onStepFinish: async (stepResult) => {
-        // Log tool calls to Langfuse
+        stepCount++;
+        const stepType = 'finishReason' in stepResult ? String(stepResult.finishReason) : 'unknown';
+        
+        // Create a span for this step in Langfuse
+        const stepSpan = trace.span({
+          name: `step-${stepCount}`,
+          metadata: {
+            stepNumber: stepCount,
+            finishReason: stepType,
+            hasToolCalls: (stepResult.toolCalls?.length || 0) > 0,
+          },
+        });
+        
+        // Log agent reasoning/thinking to Langfuse
+        if (stepResult.text && stepResult.text.trim()) {
+          trace.event({
+            name: 'agent-reasoning',
+            metadata: {
+              stepNumber: stepCount,
+              textLength: stepResult.text.length,
+            },
+            input: stepResult.text.slice(0, 5000), // Capture more text for analysis
+          });
+        }
+        
+        // Log tool calls with full details to Langfuse
         if (stepResult.toolCalls && stepResult.toolCalls.length > 0) {
           for (const toolCall of stepResult.toolCalls) {
             const args = 'args' in toolCall ? toolCall.args : undefined;
-            trace.span({
+            
+            // Find the matching tool result
+            const matchingResult = stepResult.toolResults?.find(
+              (r) => r.toolName === toolCall.toolName
+            );
+            const toolOutput = matchingResult && 'result' in matchingResult 
+              ? matchingResult.result 
+              : undefined;
+            
+            // Create a complete span with input AND output
+            const toolSpan = trace.span({
               name: `tool:${toolCall.toolName}`,
               input: args,
+              output: toolOutput,
+              metadata: {
+                stepNumber: stepCount,
+                hasResult: !!toolOutput,
+              },
+            });
+            toolSpan.end();
+          }
+        }
+        
+        // Log tool results as events for easy filtering
+        if (stepResult.toolResults && stepResult.toolResults.length > 0) {
+          for (const toolResult of stepResult.toolResults) {
+            const result = 'result' in toolResult ? toolResult.result : undefined;
+            trace.event({
+              name: `tool-result:${toolResult.toolName}`,
+              output: result,
+              metadata: {
+                stepNumber: stepCount,
+                resultSize: JSON.stringify(result || '').length,
+              },
             });
           }
         }
-        // Capture debug information for each step
+        
+        // End the step span
+        stepSpan.end();
+
+        // Console logging for local debugging (keep existing behavior)
         if (debugMode) {
           const usage = stepResult.usage as { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
-          const stepType = 'finishReason' in stepResult ? String(stepResult.finishReason) : 'unknown';
           
           // Log reasoning text if present (this is the agent's thinking!)
           if (stepResult.text && stepResult.text.trim()) {
@@ -303,12 +365,18 @@ export async function POST(request: NextRequest) {
           } : undefined,
           metadata: {
             toolCallCount: toolCalls?.length || 0,
+            totalSteps: stepCount,
           },
         });
         
-        // End trace with final output
+        // End trace with final output and summary
         trace.update({
           output: text,
+          metadata: {
+            totalSteps: stepCount,
+            totalToolCalls: toolCalls?.length || 0,
+            responseLength: text.length,
+          },
         });
         
         // Flush to ensure data is sent
