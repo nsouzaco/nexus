@@ -76,12 +76,28 @@ export async function deleteVectorsByFileId(
 ): Promise<void> {
   const namespace = getPineconeNamespace(userId);
 
-  // Use metadata filter to delete by file_id
-  await namespace.deleteMany({
+  // First, query to find all vector IDs for this file
+  // We use a dummy vector since we're filtering by metadata
+  const dummyVector = new Array(PINECONE_CONFIG.dimension).fill(0);
+  
+  const results = await namespace.query({
+    vector: dummyVector,
+    topK: 10000, // Get all vectors for this file
     filter: {
-      file_id: { $eq: fileId },
+      file_id: fileId,
     },
+    includeMetadata: false,
   });
+
+  if (results.matches && results.matches.length > 0) {
+    const ids = results.matches.map(m => m.id);
+    // Delete by IDs in batches
+    const batchSize = 1000;
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize);
+      await namespace.deleteMany(batch);
+    }
+  }
 }
 
 /**

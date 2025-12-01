@@ -79,7 +79,9 @@ export function Sidebar({ user, conversations: initialConversations = [] }: Side
       {/* Header */}
       <div className="p-4">
         <div className="flex items-center justify-between mb-6">
-          <span className="font-serif text-xl font-medium">Adapt</span>
+          <Link href="/dashboard" className="font-serif text-xl font-medium hover:opacity-70 transition-opacity">
+            Adapt
+          </Link>
         </div>
 
         <div className="space-y-1">

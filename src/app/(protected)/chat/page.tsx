@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { ArrowUp, Plus, Loader2, FileText, User, Bot, ExternalLink, Wrench, Search, Database, Code, Globe, ChartLine } from "lucide-react"
+import { ArrowUp, Plus, Loader2, FileText, User, Bot, ExternalLink, Wrench, Search, Database, Code, Globe, ChartLine, Mic } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -14,6 +14,11 @@ import {
 import { FileUpload } from "@/components/features/file-upload"
 import { ChartRenderer, parseChartFromMessage, ChartData } from "@/components/features/chart-renderer"
 import ReactMarkdown from "react-markdown"
+
+// Strip <thinking> blocks from message content (debug mode only, not for UI)
+function stripThinkingBlocks(content: string): string {
+  return content.replace(/<thinking>[\s\S]*?<\/thinking>\s*/gi, '').trim();
+}
 
 // Tool icon mapping
 const toolIcons: Record<string, React.ReactNode> = {
@@ -63,6 +68,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [showUploadDialog, setShowUploadDialog] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -107,6 +114,7 @@ export default function ChatPage() {
           message: userMessage.content,
           conversationId,
           messages: messages.map(m => ({ role: m.role, content: m.content })),
+          debugMode: true,
         }),
         signal: abortControllerRef.current.signal,
       })
@@ -194,6 +202,93 @@ export default function ChatPage() {
     }
   }
 
+  const toggleVoiceRecording = useCallback(async () => {
+    // Check if browser supports speech recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    
+    if (!SpeechRecognition) {
+      toast({
+        variant: "destructive",
+        title: "Not supported",
+        description: "Voice input is not supported in your browser. Try Chrome or Edge.",
+      })
+      return
+    }
+
+    if (isRecording) {
+      // Stop recording
+      const recognition = recognitionRef.current
+      recognitionRef.current = null // Clear ref first to prevent onend from restarting
+      recognition?.stop()
+      setIsRecording(false)
+    } else {
+      // First, request microphone permission
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch (err) {
+        toast({
+          variant: "destructive",
+          title: "Microphone access denied",
+          description: "Please allow microphone access in your browser settings to use voice input.",
+        })
+        return
+      }
+
+      // Start recording
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true // Keep listening until user stops
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+
+      recognition.onstart = () => {
+        setIsRecording(true)
+      }
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0].transcript)
+          .join('')
+        
+        setInput(transcript)
+      }
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.error('Speech recognition error:', event.error)
+        
+        const errorMessages: Record<string, string> = {
+          'not-allowed': 'Microphone access denied. Please allow microphone access in your browser settings.',
+          'no-speech': 'No speech detected. Click the mic to try again.',
+          'audio-capture': 'No microphone found. Please check your microphone connection.',
+          'network': 'Network error. Please check your internet connection.',
+          'aborted': 'Voice input was cancelled.',
+        }
+        
+        const message = errorMessages[event.error] || `Error: ${event.error}. Please try again.`
+        
+        // Don't stop recording for no-speech, just show info if needed
+        if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setIsRecording(false)
+          toast({
+            variant: "destructive",
+            title: "Voice input error",
+            description: message,
+          })
+        }
+      }
+
+      recognition.onend = () => {
+        // Only set recording to false if we intentionally stopped
+        // This prevents auto-stop on pauses when continuous mode restarts
+        if (recognitionRef.current) {
+          setIsRecording(false)
+        }
+      }
+
+      recognitionRef.current = recognition
+      recognition.start()
+    }
+  }, [isRecording])
+
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Messages Area */}
@@ -280,11 +375,29 @@ export default function ChatPage() {
 
                   {message.role === "assistant" ? (
                     (() => {
+                      // Parse charts from content - this also removes the ```chart blocks from text
                       const { text, charts } = parseChartFromMessage(message.content);
-                      const allCharts = [...charts, ...(message.charts || [])];
+                      
+                      // Only use charts from parsing (not message.charts to avoid duplicates)
+                      // Also hide incomplete chart JSON during streaming
+                      const isStreaming = isLoading && message.id === messages[messages.length - 1]?.id;
+                      const hasIncompleteChart = message.content.includes('```chart') && !message.content.includes('```chart\n') || 
+                                                  (message.content.includes('```chart\n') && !message.content.match(/```chart\n[\s\S]*?\n```/));
+                      
+                      // Clean up any incomplete chart blocks from display text
+                      // Also strip <thinking> blocks (debug mode content not for UI)
+                      let displayText = stripThinkingBlocks(text);
+                      if (isStreaming && hasIncompleteChart) {
+                        // Remove incomplete chart block from display during streaming
+                        displayText = displayText.replace(/```chart[\s\S]*$/, '').trim();
+                      }
+                      // Also strip incomplete thinking blocks during streaming
+                      if (isStreaming && displayText.includes('<thinking>') && !displayText.includes('</thinking>')) {
+                        displayText = displayText.replace(/<thinking>[\s\S]*$/, '').trim();
+                      }
                       
                       // Show loading indicator if content is empty
-                      if (!text && allCharts.length === 0 && isLoading) {
+                      if (!displayText && charts.length === 0 && isLoading) {
                         return (
                           <div className="flex items-center gap-2">
                             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
@@ -295,7 +408,7 @@ export default function ChatPage() {
                       
                       return (
                         <>
-                          {text && (
+                          {displayText && (
                             <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                               <ReactMarkdown
                                 components={{
@@ -348,11 +461,11 @@ export default function ChatPage() {
                                   ),
                                 }}
                               >
-                                {text}
+                                {displayText}
                               </ReactMarkdown>
                             </div>
                           )}
-                          {allCharts.map((chart, idx) => (
+                          {charts.map((chart, idx) => (
                             <ChartRenderer key={idx} chart={chart} />
                           ))}
                         </>
@@ -393,10 +506,29 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything about your data..."
+              placeholder={isRecording ? "Listening..." : "Ask anything about your data..."}
               disabled={isLoading}
-              className="w-full h-12 pl-12 pr-12 py-3 rounded-full border border-input focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring bg-background text-[15px] placeholder:text-muted-foreground shadow-sm transition-shadow hover:shadow-md focus:shadow-md disabled:opacity-50"
+              className={cn(
+                "w-full h-12 pl-12 pr-24 py-3 rounded-full border focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring bg-background text-[15px] placeholder:text-muted-foreground shadow-sm transition-shadow hover:shadow-md focus:shadow-md disabled:opacity-50",
+                isRecording ? "border-green-500 ring-1 ring-green-500" : "border-input"
+              )}
             />
+            <Button 
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={toggleVoiceRecording}
+              className={cn(
+                "absolute right-12 h-8 w-8 rounded-full transition-all duration-200",
+                isRecording 
+                  ? "text-green-500 hover:text-green-600 hover:bg-green-50" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              disabled={isLoading}
+              title={isRecording ? "Stop recording" : "Voice input"}
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
             <Button 
               type="button"
               size="icon"

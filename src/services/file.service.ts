@@ -263,7 +263,7 @@ export async function deleteFile(
   // Get file record
   const { data: file, error: fileError } = await supabase
     .from('files')
-    .select('storage_path')
+    .select('storage_path, status')
     .eq('id', fileId)
     .eq('user_id', userId)
     .single();
@@ -273,8 +273,16 @@ export async function deleteFile(
   }
 
   try {
-    // Delete vectors from Pinecone
-    await deleteVectorsByFileId(userId, fileId);
+    // Only try to delete vectors if file was successfully processed
+    // Skip for pending/error files that have no vectors
+    if (file.status === 'ready') {
+      try {
+        await deleteVectorsByFileId(userId, fileId);
+      } catch (pineconeError) {
+        // Log but don't fail the whole deletion if Pinecone fails
+        console.warn('Failed to delete vectors from Pinecone (continuing with file deletion):', pineconeError);
+      }
+    }
 
     // Delete from storage
     await supabase.storage.from('user-files').remove([file.storage_path]);

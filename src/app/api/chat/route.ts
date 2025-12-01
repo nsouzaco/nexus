@@ -5,6 +5,19 @@ import { openai } from '@ai-sdk/openai';
 import { createAgentTools, getAgentSystemPrompt } from '@/lib/ai/agent';
 import { getConnectedIntegrations } from '@/services/integrations';
 
+// Debug log entry type
+export interface DebugLogEntry {
+  timestamp: string;
+  type: 'tool_call' | 'tool_result' | 'step_start' | 'step_finish' | 'thinking' | 'error';
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  toolResult?: unknown;
+  stepType?: string;
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  text?: string;
+  error?: string;
+}
+
 /**
  * Check if the query is a casual/greeting message that doesn't need tools
  */
@@ -47,7 +60,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { message, conversationId, messages: clientMessages } = await request.json();
+    const { message, conversationId, messages: clientMessages, debugMode = false } = await request.json();
 
     if (!message || typeof message !== 'string') {
       return new Response(JSON.stringify({ error: 'Message is required' }), {
@@ -55,6 +68,9 @@ export async function POST(request: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    // Debug logs array to capture step-by-step information
+    const debugLogs: DebugLogEntry[] = [];
 
     // Get or create conversation
     let currentConversationId = conversationId;
@@ -94,8 +110,8 @@ export async function POST(request: NextRequest) {
     // Create tools for this user
     const tools = createAgentTools(user.id);
     
-    // Get system prompt
-    const systemPrompt = getAgentSystemPrompt(connectedIntegrations);
+    // Get system prompt (with debug instructions if enabled)
+    const systemPrompt = getAgentSystemPrompt(connectedIntegrations, debugMode);
     
     // Build messages array using CoreMessage format
     let aiMessages: CoreMessage[] = [];
@@ -135,6 +151,17 @@ export async function POST(request: NextRequest) {
     // Check if this is a casual message (don't use tools for greetings)
     const isCasual = isCasualMessage(message);
     
+    // Log initial request info for debugging
+    if (debugMode) {
+      console.log('\n[AGENT DEBUG] ═══════════════════════════════════════════');
+      console.log('[AGENT DEBUG] NEW REQUEST');
+      console.log('[AGENT DEBUG] ═══════════════════════════════════════════');
+      console.log('[AGENT DEBUG] User message:', message);
+      console.log('[AGENT DEBUG] Is casual:', isCasual);
+      console.log('[AGENT DEBUG] Connected integrations:', connectedIntegrations);
+      console.log('[AGENT DEBUG] Message history length:', aiMessages.length);
+    }
+
     // Stream the response using Vercel AI SDK
     const result = streamText({
       model: openai('gpt-4o'),
@@ -143,6 +170,69 @@ export async function POST(request: NextRequest) {
       tools: isCasual ? undefined : tools,
       stopWhen: isCasual ? stepCountIs(1) : stepCountIs(5), // Allow multi-step tool use for non-casual messages
       temperature: 0.3,
+      onStepFinish: async (stepResult) => {
+        // Capture debug information for each step
+        if (debugMode) {
+          const usage = stepResult.usage as { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
+          const stepType = 'finishReason' in stepResult ? String(stepResult.finishReason) : 'unknown';
+          
+          // Log reasoning text if present (this is the agent's thinking!)
+          if (stepResult.text && stepResult.text.trim()) {
+            console.log('\n[AGENT REASONING] ─────────────────────────────────────');
+            const reasoningText = stepResult.text.slice(0, 1500);
+            console.log(reasoningText);
+            if (stepResult.text.length > 1500) console.log('... (truncated)');
+            console.log('─────────────────────────────────────────────────────────');
+          }
+          
+          debugLogs.push({
+            timestamp: new Date().toISOString(),
+            type: 'step_finish',
+            stepType,
+            text: stepResult.text,
+            usage: usage ? {
+              promptTokens: usage.promptTokens ?? 0,
+              completionTokens: usage.completionTokens ?? 0,
+              totalTokens: usage.totalTokens ?? 0,
+            } : undefined,
+          });
+
+          // Log each tool call with its arguments
+          if (stepResult.toolCalls && stepResult.toolCalls.length > 0) {
+            console.log('\n[AGENT DECISION] Calling tools:');
+            for (const toolCall of stepResult.toolCalls) {
+              const args = 'args' in toolCall ? toolCall.args : undefined;
+              const argsStr = args !== undefined ? JSON.stringify(args) : 'no args';
+              console.log(`  → ${toolCall.toolName}(${argsStr})`);
+              
+              debugLogs.push({
+                timestamp: new Date().toISOString(),
+                type: 'tool_call',
+                toolName: toolCall.toolName,
+                toolArgs: args as Record<string, unknown>,
+              });
+            }
+          }
+
+          // Log tool results (truncated for readability)
+          if (stepResult.toolResults && stepResult.toolResults.length > 0) {
+            console.log('\n[AGENT TOOL RESULTS]:');
+            for (const toolResult of stepResult.toolResults) {
+              const result = 'result' in toolResult ? toolResult.result : undefined;
+              const resultStr = result !== undefined ? JSON.stringify(result) : 'undefined';
+              const truncated = resultStr.length > 200 ? resultStr.slice(0, 200) + '...' : resultStr;
+              console.log(`  ← ${toolResult.toolName}: ${truncated}`);
+              
+              debugLogs.push({
+                timestamp: new Date().toISOString(),
+                type: 'tool_result',
+                toolName: toolResult.toolName,
+                toolResult: result,
+              });
+            }
+          }
+        }
+      },
       onFinish: async ({ text, totalUsage, toolCalls }) => {
         // Save assistant message to database
         const toolCallsData = toolCalls && toolCalls.length > 0 
@@ -160,6 +250,19 @@ export async function POST(request: NextRequest) {
             content: text,
             sources: toolCallsData,
           });
+        
+        // Log final debug summary to console
+        if (debugMode && debugLogs.length > 0) {
+          console.log('\n[AGENT DEBUG SUMMARY]');
+          console.log('='.repeat(50));
+          debugLogs.forEach((log, i) => {
+            console.log(`${i + 1}. [${log.type}] ${log.toolName || log.stepType || ''}`);
+            if (log.toolArgs) console.log('   Args:', JSON.stringify(log.toolArgs, null, 2));
+            if (log.toolResult) console.log('   Result:', JSON.stringify(log.toolResult, null, 2).slice(0, 500));
+            if (log.usage) console.log('   Tokens:', log.usage.totalTokens);
+          });
+          console.log('='.repeat(50));
+        }
 
         // Update conversation timestamp
         await supabase

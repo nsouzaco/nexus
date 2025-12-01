@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { ArrowUp, Plus, Loader2, FileText, User, Bot, ExternalLink } from "lucide-react"
+import { ArrowUp, Plus, Loader2, FileText, User, Bot, ExternalLink, Wrench, Search, Database, Code, Globe, ChartLine, Mic } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -13,8 +13,45 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { FileUpload } from "@/components/features/file-upload"
-import { ChartRenderer, parseChartFromMessage } from "@/components/features/chart-renderer"
+import { ChartRenderer, parseChartFromMessage, ChartData } from "@/components/features/chart-renderer"
 import ReactMarkdown from "react-markdown"
+
+// Strip <thinking> blocks from message content (debug mode only, not for UI)
+function stripThinkingBlocks(content: string): string {
+  return content.replace(/<thinking>[\s\S]*?<\/thinking>\s*/gi, '').trim();
+}
+
+// Tool icon mapping
+const toolIcons: Record<string, React.ReactNode> = {
+  searchAirtable: <Database className="w-3 h-3" />,
+  searchGitHub: <Code className="w-3 h-3" />,
+  searchNotion: <FileText className="w-3 h-3" />,
+  searchGoogleDrive: <FileText className="w-3 h-3" />,
+  searchFiles: <Search className="w-3 h-3" />,
+  createAirtableRecord: <Database className="w-3 h-3" />,
+  updateAirtableRecord: <Database className="w-3 h-3" />,
+  createGitHubIssue: <Code className="w-3 h-3" />,
+  createNotionPage: <FileText className="w-3 h-3" />,
+  generateChart: <ChartLine className="w-3 h-3" />,
+  executeCode: <Code className="w-3 h-3" />,
+  webSearch: <Globe className="w-3 h-3" />,
+}
+
+// Human-readable tool names
+const toolLabels: Record<string, string> = {
+  searchAirtable: "Searching Airtable",
+  searchGitHub: "Searching GitHub",
+  searchNotion: "Searching Notion",
+  searchGoogleDrive: "Searching Google Drive",
+  searchFiles: "Searching files",
+  createAirtableRecord: "Creating Airtable record",
+  updateAirtableRecord: "Updating Airtable record",
+  createGitHubIssue: "Creating GitHub issue",
+  createNotionPage: "Creating Notion page",
+  generateChart: "Generating chart",
+  executeCode: "Running calculation",
+  webSearch: "Searching the web",
+}
 
 interface Message {
   id: string
@@ -26,6 +63,11 @@ interface Message {
     url?: string
     relevance: number
   }>
+  toolCalls?: Array<{
+    name: string
+    status: 'pending' | 'complete'
+  }>
+  charts?: ChartData[]
 }
 
 export default function ConversationPage() {
@@ -37,7 +79,10 @@ export default function ConversationPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const [showUploadDialog, setShowUploadDialog] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -78,7 +123,7 @@ export default function ConversationPage() {
     scrollToBottom()
   }, [messages])
 
-  const handleSend = async () => {
+  const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading) return
 
     const userMessage: Message = {
@@ -87,45 +132,95 @@ export default function ConversationPage() {
       content: input.trim(),
     }
 
+    const assistantMessageId = (Date.now() + 1).toString()
+
     setMessages((prev) => [...prev, userMessage])
     setInput("")
     setIsLoading(true)
 
+    // Create a placeholder assistant message for streaming
+    setMessages((prev) => [...prev, {
+      id: assistantMessageId,
+      role: "assistant",
+      content: "",
+    }])
+
     try {
+      abortControllerRef.current = new AbortController()
+      
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           message: userMessage.content,
           conversationId,
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
+          debugMode: true,
         }),
+        signal: abortControllerRef.current.signal,
       })
 
-      const data = await res.json()
-
       if (!res.ok) {
+        const data = await res.json()
         throw new Error(data.error || "Failed to send message")
       }
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: data.message,
-        sources: data.sources,
+      // Handle streaming response
+      const reader = res.body?.getReader()
+      const decoder = new TextDecoder()
+      let fullContent = ""
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          
+          const chunk = decoder.decode(value)
+          fullContent += chunk
+          
+          // Update the assistant message with the new content
+          setMessages((prev) => 
+            prev.map((m) => 
+              m.id === assistantMessageId 
+                ? { ...m, content: fullContent }
+                : m
+            )
+          )
+        }
       }
 
-      setMessages((prev) => [...prev, assistantMessage])
+      // Parse any charts from the final content
+      const { charts } = parseChartFromMessage(fullContent)
+      if (charts.length > 0) {
+        setMessages((prev) => 
+          prev.map((m) => 
+            m.id === assistantMessageId 
+              ? { ...m, charts }
+              : m
+          )
+        )
+      }
+
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return // Request was aborted, don't show error
+      }
+      
       toast({
         variant: "destructive",
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to send message",
       })
-      setMessages((prev) => prev.filter((m) => m.id !== userMessage.id))
+      
+      // Remove the placeholder messages on error
+      setMessages((prev) => prev.filter((m) => 
+        m.id !== userMessage.id && m.id !== assistantMessageId
+      ))
     } finally {
       setIsLoading(false)
+      abortControllerRef.current = null
     }
-  }
+  }, [input, isLoading, conversationId, messages])
 
   const handleUploadComplete = () => {
     setShowUploadDialog(false)
@@ -134,6 +229,93 @@ export default function ConversationPage() {
       description: "Your file is being processed. You can now ask questions about it.",
     })
   }
+
+  const toggleVoiceRecording = useCallback(async () => {
+    // Check if browser supports speech recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    
+    if (!SpeechRecognition) {
+      toast({
+        variant: "destructive",
+        title: "Not supported",
+        description: "Voice input is not supported in your browser. Try Chrome or Edge.",
+      })
+      return
+    }
+
+    if (isRecording) {
+      // Stop recording
+      const recognition = recognitionRef.current
+      recognitionRef.current = null // Clear ref first to prevent onend from restarting
+      recognition?.stop()
+      setIsRecording(false)
+    } else {
+      // First, request microphone permission
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch (err) {
+        toast({
+          variant: "destructive",
+          title: "Microphone access denied",
+          description: "Please allow microphone access in your browser settings to use voice input.",
+        })
+        return
+      }
+
+      // Start recording
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true // Keep listening until user stops
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+
+      recognition.onstart = () => {
+        setIsRecording(true)
+      }
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0].transcript)
+          .join('')
+        
+        setInput(transcript)
+      }
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.error('Speech recognition error:', event.error)
+        
+        const errorMessages: Record<string, string> = {
+          'not-allowed': 'Microphone access denied. Please allow microphone access in your browser settings.',
+          'no-speech': 'No speech detected. Click the mic to try again.',
+          'audio-capture': 'No microphone found. Please check your microphone connection.',
+          'network': 'Network error. Please check your internet connection.',
+          'aborted': 'Voice input was cancelled.',
+        }
+        
+        const message = errorMessages[event.error] || `Error: ${event.error}. Please try again.`
+        
+        // Don't stop recording for no-speech, just show info if needed
+        if (event.error !== 'no-speech' && event.error !== 'aborted') {
+          setIsRecording(false)
+          toast({
+            variant: "destructive",
+            title: "Voice input error",
+            description: message,
+          })
+        }
+      }
+
+      recognition.onend = () => {
+        // Only set recording to false if we intentionally stopped
+        // This prevents auto-stop on pauses when continuous mode restarts
+        if (recognitionRef.current) {
+          setIsRecording(false)
+        }
+      }
+
+      recognitionRef.current = recognition
+      recognition.start()
+    }
+  }, [isRecording])
 
   if (isLoadingHistory) {
     return (
@@ -172,9 +354,53 @@ export default function ConversationPage() {
               >
                 {message.role === "assistant" ? (
                   (() => {
+                    // Parse charts from content - also removes ```chart blocks from text
                     const { text, charts } = parseChartFromMessage(message.content);
+                    
+                    // Check if this is the currently streaming message
+                    const isCurrentlyStreaming = isLoading && message.id === messages[messages.length - 1]?.id;
+                    const hasIncompleteChart = message.content.includes('```chart') && 
+                      !message.content.match(/```chart\n[\s\S]*?\n```/);
+                    
+                    // Hide incomplete chart JSON during streaming
+                    // Also strip <thinking> blocks (debug mode content not for UI)
+                    let displayText = stripThinkingBlocks(text);
+                    if (isCurrentlyStreaming && hasIncompleteChart) {
+                      displayText = displayText.replace(/```chart[\s\S]*$/, '').trim();
+                    }
+                    // Also strip incomplete thinking blocks during streaming
+                    if (isCurrentlyStreaming && displayText.includes('<thinking>') && !displayText.includes('</thinking>')) {
+                      displayText = displayText.replace(/<thinking>[\s\S]*$/, '').trim();
+                    }
+                    
                     return (
                       <>
+                        {/* Tool Calls */}
+                        {message.toolCalls && message.toolCalls.length > 0 && (
+                          <div className="mb-3 space-y-2">
+                            {message.toolCalls.map((tool, idx) => (
+                              <div 
+                                key={idx}
+                                className={cn(
+                                  "flex items-center gap-2 text-xs py-1.5 px-2.5 rounded-lg",
+                                  tool.status === 'complete' 
+                                    ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                                    : "bg-primary/10 text-primary"
+                                )}
+                              >
+                                {tool.status !== 'complete' ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  toolIcons[tool.name] || <Wrench className="w-3 h-3" />
+                                )}
+                                <span>
+                                  {toolLabels[tool.name] || tool.name}
+                                  {tool.status === 'complete' && ' ✓'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                           <ReactMarkdown
                             components={{
@@ -227,7 +453,7 @@ export default function ConversationPage() {
                               ),
                             }}
                           >
-                            {text}
+                            {displayText}
                           </ReactMarkdown>
                         </div>
                         {charts.map((chart, idx) => (
@@ -314,10 +540,29 @@ export default function ConversationPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder="Ask anything about your files..."
+              placeholder={isRecording ? "Listening..." : "Ask anything about your files..."}
               disabled={isLoading}
-              className="w-full h-12 pl-12 pr-12 py-3 rounded-full border border-input focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring bg-background text-[15px] placeholder:text-muted-foreground shadow-sm transition-shadow hover:shadow-md focus:shadow-md disabled:opacity-50"
+              className={cn(
+                "w-full h-12 pl-12 pr-24 py-3 rounded-full border focus:outline-none focus:border-ring focus:ring-1 focus:ring-ring bg-background text-[15px] placeholder:text-muted-foreground shadow-sm transition-shadow hover:shadow-md focus:shadow-md disabled:opacity-50",
+                isRecording ? "border-green-500 ring-1 ring-green-500" : "border-input"
+              )}
             />
+            <Button 
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={toggleVoiceRecording}
+              className={cn(
+                "absolute right-12 h-8 w-8 rounded-full transition-all duration-200",
+                isRecording 
+                  ? "text-green-500 hover:text-green-600 hover:bg-green-50" 
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              disabled={isLoading}
+              title={isRecording ? "Stop recording" : "Voice input"}
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
             <Button 
               size="icon"
               onClick={handleSend}
