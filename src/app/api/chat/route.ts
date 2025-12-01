@@ -4,6 +4,14 @@ import { streamText, CoreMessage, stepCountIs } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { createAgentTools, getAgentSystemPrompt } from '@/lib/ai/agent';
 import { getConnectedIntegrations } from '@/services/integrations';
+import { Langfuse } from 'langfuse';
+
+// Initialize Langfuse client
+const langfuse = new Langfuse({
+  secretKey: process.env.LANGFUSE_SECRET_KEY,
+  publicKey: process.env.LANGFUSE_PUBLIC_KEY,
+  baseUrl: process.env.LANGFUSE_BASEURL || 'https://us.cloud.langfuse.com',
+});
 
 // Debug log entry type
 export interface DebugLogEntry {
@@ -151,6 +159,19 @@ export async function POST(request: NextRequest) {
     // Check if this is a casual message (don't use tools for greetings)
     const isCasual = isCasualMessage(message);
     
+    // Create Langfuse trace for this conversation
+    const trace = langfuse.trace({
+      name: 'chat',
+      userId: user.id,
+      sessionId: currentConversationId,
+      metadata: {
+        connectedIntegrations,
+        isCasual,
+        messageCount: aiMessages.length,
+      },
+      input: message,
+    });
+    
     // Log initial request info for debugging
     if (debugMode) {
       console.log('\n[AGENT DEBUG] ═══════════════════════════════════════════');
@@ -162,6 +183,17 @@ export async function POST(request: NextRequest) {
       console.log('[AGENT DEBUG] Message history length:', aiMessages.length);
     }
 
+    // Create generation span for the LLM call
+    const generation = trace.generation({
+      name: 'agent-response',
+      model: 'gpt-4o',
+      input: aiMessages,
+      metadata: {
+        systemPromptLength: systemPrompt.length,
+        toolsEnabled: !isCasual,
+      },
+    });
+
     // Stream the response using Vercel AI SDK
     const result = streamText({
       model: openai('gpt-4o'),
@@ -171,6 +203,16 @@ export async function POST(request: NextRequest) {
       stopWhen: isCasual ? stepCountIs(1) : stepCountIs(5), // Allow multi-step tool use for non-casual messages
       temperature: 0.3,
       onStepFinish: async (stepResult) => {
+        // Log tool calls to Langfuse
+        if (stepResult.toolCalls && stepResult.toolCalls.length > 0) {
+          for (const toolCall of stepResult.toolCalls) {
+            const args = 'args' in toolCall ? toolCall.args : undefined;
+            trace.span({
+              name: `tool:${toolCall.toolName}`,
+              input: args,
+            });
+          }
+        }
         // Capture debug information for each step
         if (debugMode) {
           const usage = stepResult.usage as { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
@@ -250,6 +292,27 @@ export async function POST(request: NextRequest) {
             content: text,
             sources: toolCallsData,
           });
+        
+        // End Langfuse generation with output and usage
+        generation.end({
+          output: text,
+          usage: totalUsage ? {
+            input: totalUsage.inputTokens || 0,
+            output: totalUsage.outputTokens || 0,
+            total: (totalUsage.inputTokens || 0) + (totalUsage.outputTokens || 0),
+          } : undefined,
+          metadata: {
+            toolCallCount: toolCalls?.length || 0,
+          },
+        });
+        
+        // End trace with final output
+        trace.update({
+          output: text,
+        });
+        
+        // Flush to ensure data is sent
+        await langfuse.flushAsync();
         
         // Log final debug summary to console
         if (debugMode && debugLogs.length > 0) {

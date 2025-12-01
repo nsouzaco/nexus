@@ -27,6 +27,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
+    "langfuse": "^3.38.6",
     "lucide-react": "^0.468.0",
     "mammoth": "^1.11.0",
     "next": "^14.2.18",
