@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { getUser } from "@/lib/supabase/server"
 import { IntegrationCard } from "@/components/features/integration-card"
 import { Button } from "@/components/ui/button"
-import { MessageSquare, Zap } from "lucide-react"
+import { MessageSquare } from "lucide-react"
 import Link from "next/link"
 import { DashboardTabs } from "./dashboard-tabs"
 import { FileRecord } from "@/types/files"
@@ -12,28 +12,28 @@ const integrations = [
     provider: "notion" as const,
     name: "Notion",
     description: "Query wikis, databases, and documents",
-    icon: "📝",
+    icon: "/assets/icons/notion.png",
     color: "bg-[#000000]",
   },
   {
     provider: "google_drive" as const,
     name: "Google Drive",
     description: "Search and analyze Docs, Sheets, and PDFs",
-    icon: "📁",
-    color: "bg-[#4285F4]",
+    icon: "/assets/icons/google-drive.png",
+    color: "bg-[#FFFFFF]",
   },
   {
     provider: "airtable" as const,
     name: "Airtable",
     description: "Query structured data tables",
-    icon: "📊",
+    icon: "/assets/icons/airtable.svg",
     color: "bg-[#18BFFF]",
   },
   {
     provider: "github" as const,
     name: "GitHub",
     description: "Query repos, issues, PRs, and commits",
-    icon: "🐙",
+    icon: "/assets/icons/github.png",
     color: "bg-[#24292F]",
   },
 ]
@@ -97,7 +97,7 @@ export default async function DashboardPage() {
       {!canChat && (
         <div className="mb-8 p-8 rounded-2xl border border-dashed border-primary/30 bg-primary/5 text-center">
           <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary/10 flex items-center justify-center">
-            <Zap className="w-8 h-8 text-primary" />
+            <MessageSquare className="w-8 h-8 text-primary" />
           </div>
           <h2 className="text-xl font-semibold mb-2">Get Started</h2>
           <p className="text-muted-foreground max-w-md mx-auto">

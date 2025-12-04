@@ -1,4 +1,4 @@
-# Adapt
+# Nexus
 
 An AI-powered business intelligence assistant that connects to your data sources and answers questions with cited sources.
 
@@ -11,7 +11,7 @@ An AI-powered business intelligence assistant that connects to your data sources
 
 ## Overview
 
-Adapt unifies your scattered business data—across Notion, Google Drive, Airtable, and GitHub—into a single conversational interface. Ask questions in plain English, get answers grounded in your actual data, with links back to the source.
+Nexus unifies your scattered business data—across Notion, Google Drive, Airtable, and GitHub—into a single conversational interface. Ask questions in plain English, get answers grounded in your actual data, with links back to the source.
 
 **Key capabilities:**
 - 🔍 **Search** across all connected tools simultaneously
@@ -168,8 +168,8 @@ src/
 
 ```bash
 # Clone the repository
-git clone https://github.com/nsouzaco/adapt-clone.git
-cd adapt-clone
+git clone https://github.com/nsouzaco/nexus.git
+cd nexus
 
 # Install dependencies
 npm install
@@ -193,7 +193,7 @@ OPENAI_API_KEY=your_openai_key
 
 # Pinecone
 PINECONE_API_KEY=your_pinecone_key
-PINECONE_INDEX_NAME=adapt-clone
+PINECONE_INDEX_NAME=nexus
 
 # OAuth (configure in respective developer consoles)
 NOTION_CLIENT_ID=
@@ -292,7 +292,7 @@ LANGFUSE_BASEURL=https://us.cloud.langfuse.com
 
 Deploy to Vercel with one click:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/nsouzaco/adapt-clone)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/nsouzaco/nexus)
 
 Configure environment variables in Vercel dashboard.
 

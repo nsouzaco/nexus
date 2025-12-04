@@ -20,7 +20,7 @@ export function getPineconeClient(): Pinecone {
 }
 
 export function getPineconeIndex() {
-  const indexName = process.env.PINECONE_INDEX_NAME || 'adapt-clone';
+  const indexName = process.env.PINECONE_INDEX_NAME || 'nexus';
   const client = getPineconeClient();
   
   // If a specific host is provided (for pod-based or dedicated indexes), use it
@@ -40,7 +40,7 @@ export function getPineconeNamespace(userId: string) {
 
 // Configuration constants
 export const PINECONE_CONFIG = {
-  indexName: process.env.PINECONE_INDEX_NAME || 'adapt-clone',
+  indexName: process.env.PINECONE_INDEX_NAME || 'nexus',
   dimension: 1536, // text-embedding-3-small dimension
   metric: 'cosine' as const,
   topK: 5, // Default number of results to return

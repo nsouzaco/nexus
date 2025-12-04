@@ -415,7 +415,7 @@ export async function createNotionPage(
         parent = { page_id: searchResult.results[0].id };
       } else {
         // No accessible pages, try workspace (may fail depending on integration permissions)
-        return { error: 'No accessible pages found in Notion. Please share a page with the Adapt integration first.' };
+        return { error: 'No accessible pages found in Notion. Please share a page with the Nexus integration first.' };
       }
     }
 

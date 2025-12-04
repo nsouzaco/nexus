@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Bot, Database, MessageSquare, Search, User, Zap } from "lucide-react"
+import { ArrowRight, Bot, Database, MessageSquare, Search, User } from "lucide-react"
 
 export default function LandingPage() {
   return (
@@ -8,12 +8,7 @@ export default function LandingPage() {
       {/* Navigation */}
       <nav className="border-b border-border/40 backdrop-blur-sm fixed top-0 w-full z-50 bg-background/80">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-purple-400 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-semibold">Adapt</span>
-          </div>
+          <span className="text-xl font-semibold">Nexus</span>
           <div className="flex items-center gap-4">
             <Link href="/login">
               <Button variant="ghost" size="sm">
@@ -32,8 +27,7 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="pt-32 pb-20 px-6">
         <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-8">
-            <Zap className="w-4 h-4" />
+          <div className="inline-flex items-center px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-8">
             AI-Powered Business Intelligence
           </div>
           <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 bg-gradient-to-br from-foreground via-foreground to-muted-foreground bg-clip-text">
@@ -179,12 +173,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="border-t border-border/40 py-8 px-6">
         <div className="max-w-7xl mx-auto flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary to-purple-400 flex items-center justify-center">
-              <Zap className="w-3 h-3 text-white" />
-            </div>
-            <span>Adapt Clone</span>
-          </div>
+          <span>Nexus</span>
           <p>© 2024 All rights reserved.</p>
         </div>
       </footer>

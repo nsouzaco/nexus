@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Loader2, Zap } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 
 export default function SignupPage() {
@@ -62,11 +62,8 @@ export default function SignupPage() {
 
   return (
     <>
-      <div className="lg:hidden flex items-center gap-2 mb-8">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-purple-400 flex items-center justify-center">
-          <Zap className="w-5 h-5 text-white" />
-        </div>
-        <span className="text-xl font-semibold">Adapt</span>
+      <div className="lg:hidden mb-8">
+        <span className="text-xl font-semibold">Nexus</span>
       </div>
 
       <Card className="border-border/50 bg-card/50 backdrop-blur">

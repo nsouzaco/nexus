@@ -155,12 +155,15 @@ export function IntegrationCard({
             <div className="flex items-start gap-4">
               <div
                 className={cn(
-                  "w-12 h-12 rounded-xl flex items-center justify-center text-2xl",
-                  color,
-                  "text-white"
+                  "w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden",
+                  color
                 )}
               >
-                {icon}
+                <img 
+                  src={icon} 
+                  alt={`${name} icon`} 
+                  className="w-7 h-7 object-contain"
+                />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">

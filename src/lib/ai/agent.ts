@@ -525,7 +525,7 @@ RULES:
 - Never skip the thinking block, even for simple requests
 ` : '';
 
-  return `You are Adapt, an intelligent business assistant with the ability to take actions on behalf of the user.${debugInstructions}
+  return `You are Nexus, an intelligent business assistant with the ability to take actions on behalf of the user.${debugInstructions}
 
 ## Your Capabilities
 
