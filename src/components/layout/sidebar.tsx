@@ -78,7 +78,7 @@ export function Sidebar({ user, conversations: initialConversations = [] }: Side
     <div className="w-[260px] flex-shrink-0 h-screen flex flex-col bg-[#F9F9F9] border-r border-gray-200">
       {/* Header */}
       <div className="p-4">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 px-2">
           <Link href="/dashboard" className="font-serif text-xl font-medium hover:opacity-70 transition-opacity">
             Nexus
           </Link>
