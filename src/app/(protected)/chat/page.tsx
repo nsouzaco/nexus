@@ -20,10 +20,44 @@ function stripThinkingBlocks(content: string): string {
   return content.replace(/<thinking>[\s\S]*?<\/thinking>\s*/gi, '').trim();
 }
 
+// Parse tool markers from streamed content
+function parseToolMarkers(content: string): { 
+  cleanContent: string; 
+  activeTools: string[];
+  completedTools: string[];
+} {
+  const activeTools: string[] = [];
+  const completedTools: string[] = [];
+  let cleanContent = content;
+  
+  // Find all tool start markers
+  const startRegex = /<!--TOOL_START:(\w+)-->/g;
+  let match;
+  while ((match = startRegex.exec(content)) !== null) {
+    activeTools.push(match[1]);
+    cleanContent = cleanContent.replace(match[0], '');
+  }
+  
+  // Find all tool end markers and remove from active
+  const endRegex = /<!--TOOL_END:(\w+)-->/g;
+  while ((match = endRegex.exec(content)) !== null) {
+    const toolName = match[1];
+    const activeIndex = activeTools.indexOf(toolName);
+    if (activeIndex > -1) {
+      activeTools.splice(activeIndex, 1);
+    }
+    completedTools.push(toolName);
+    cleanContent = cleanContent.replace(match[0], '');
+  }
+  
+  return { cleanContent, activeTools, completedTools };
+}
+
 // Tool icon mapping
 const toolIcons: Record<string, React.ReactNode> = {
   searchAirtable: <Database className="w-3 h-3" />,
   searchGitHub: <Code className="w-3 h-3" />,
+  listGitHubRepos: <Code className="w-3 h-3" />,
   searchNotion: <FileText className="w-3 h-3" />,
   searchGoogleDrive: <FileText className="w-3 h-3" />,
   searchFiles: <Search className="w-3 h-3" />,
@@ -31,6 +65,8 @@ const toolIcons: Record<string, React.ReactNode> = {
   updateAirtableRecord: <Database className="w-3 h-3" />,
   createGitHubIssue: <Code className="w-3 h-3" />,
   createNotionPage: <FileText className="w-3 h-3" />,
+  createGoogleDriveFile: <FileText className="w-3 h-3" />,
+  createSlidesPresentation: <FileText className="w-3 h-3" />,
   generateChart: <ChartLine className="w-3 h-3" />,
   executeCode: <Code className="w-3 h-3" />,
   webSearch: <Globe className="w-3 h-3" />,
@@ -40,6 +76,7 @@ const toolIcons: Record<string, React.ReactNode> = {
 const toolLabels: Record<string, string> = {
   searchAirtable: "Searching Airtable",
   searchGitHub: "Searching GitHub",
+  listGitHubRepos: "Loading repositories",
   searchNotion: "Searching Notion",
   searchGoogleDrive: "Searching Google Drive",
   searchFiles: "Searching files",
@@ -47,6 +84,8 @@ const toolLabels: Record<string, string> = {
   updateAirtableRecord: "Updating Airtable record",
   createGitHubIssue: "Creating GitHub issue",
   createNotionPage: "Creating Notion page",
+  createGoogleDriveFile: "Creating Google Drive file",
+  createSlidesPresentation: "Creating presentation",
   generateChart: "Generating chart",
   executeCode: "Running calculation",
   webSearch: "Searching the web",
@@ -388,14 +427,17 @@ export default function ChatPage() {
 
                   {message.role === "assistant" ? (
                     (() => {
+                      // Parse tool markers from content
+                      const { cleanContent, activeTools, completedTools } = parseToolMarkers(message.content);
+                      
                       // Parse charts from content - this also removes the ```chart blocks from text
-                      const { text, charts } = parseChartFromMessage(message.content);
+                      const { text, charts } = parseChartFromMessage(cleanContent);
                       
                       // Only use charts from parsing (not message.charts to avoid duplicates)
                       // Also hide incomplete chart JSON during streaming
                       const isStreaming = isLoading && message.id === messages[messages.length - 1]?.id;
-                      const hasIncompleteChart = message.content.includes('```chart') && !message.content.includes('```chart\n') || 
-                                                  (message.content.includes('```chart\n') && !message.content.match(/```chart\n[\s\S]*?\n```/));
+                      const hasIncompleteChart = cleanContent.includes('```chart') && !cleanContent.includes('```chart\n') || 
+                                                  (cleanContent.includes('```chart\n') && !cleanContent.match(/```chart\n[\s\S]*?\n```/));
                       
                       // Clean up any incomplete chart blocks from display text
                       // Also strip <thinking> blocks (debug mode content not for UI)
@@ -409,8 +451,14 @@ export default function ChatPage() {
                         displayText = displayText.replace(/<thinking>[\s\S]*$/, '').trim();
                       }
                       
-                      // Show loading indicator if content is empty
-                      if (!displayText && charts.length === 0 && isLoading) {
+                      // Build tool calls list from markers
+                      const allToolCalls = [
+                        ...completedTools.map(name => ({ name, status: 'complete' as const })),
+                        ...activeTools.map(name => ({ name, status: 'pending' as const })),
+                      ];
+                      
+                      // Show loading indicator if content is empty and no tools active
+                      if (!displayText && charts.length === 0 && allToolCalls.length === 0 && isLoading) {
                         return (
                           <div className="flex items-center gap-2">
                             <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
@@ -421,6 +469,32 @@ export default function ChatPage() {
                       
                       return (
                         <>
+                          {/* Tool Calls from streaming */}
+                          {allToolCalls.length > 0 && (
+                            <div className="mb-3 space-y-2">
+                              {allToolCalls.map((tool, idx) => (
+                                <div 
+                                  key={idx}
+                                  className={cn(
+                                    "flex items-center gap-2 text-xs py-1.5 px-2.5 rounded-lg transition-all duration-300",
+                                    tool.status === 'complete' 
+                                      ? "bg-green-500/10 text-green-700 dark:text-green-400"
+                                      : "bg-primary/10 text-primary animate-pulse"
+                                  )}
+                                >
+                                  {tool.status !== 'complete' ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    toolIcons[tool.name] || <Wrench className="w-3 h-3" />
+                                  )}
+                                  <span>
+                                    {toolLabels[tool.name] || tool.name}
+                                    {tool.status === 'complete' && ' ✓'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {displayText && (
                             <div className="prose prose-sm dark:prose-invert max-w-none break-words">
                               <ReactMarkdown

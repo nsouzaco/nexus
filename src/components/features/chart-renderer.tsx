@@ -16,6 +16,7 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  ReferenceDot,
 } from "recharts"
 
 export interface ChartData {
@@ -38,6 +39,11 @@ const DEFAULT_COLORS = [
   "#0088FE",
 ]
 
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+]
+
 export function ChartRenderer({ chart }: { chart: ChartData }) {
   const { type, title, data, xKey = "name", yKey = "value", colors = DEFAULT_COLORS } = chart
   
@@ -51,6 +57,26 @@ export function ChartRenderer({ chart }: { chart: ChartData }) {
     )
   }
 
+  // Check if this is a monthly chart and pad data to 12 months for consistent display
+  const isMonthlyChart = xKey === "month" && data.some(d => MONTHS.includes(d.month))
+  
+  // Track which months are missing data (for showing dots at y=0)
+  const monthsWithData = new Set(data.map(d => d[xKey]))
+  const missingMonths = isMonthlyChart 
+    ? MONTHS.filter(month => !monthsWithData.has(month))
+    : []
+  
+  const normalizedData = isMonthlyChart
+    ? MONTHS.map(month => {
+        const existing = data.find(d => d[xKey] === month)
+        if (existing) return existing
+        // Return placeholder with null so line doesn't connect
+        const placeholder: Record<string, any> = { [xKey]: month }
+        yKeys.forEach(key => { placeholder[key] = null })
+        return placeholder
+      })
+    : data
+
   return (
     <div className="my-4 p-4 bg-background/50 rounded-lg border">
       {title && (
@@ -58,12 +84,17 @@ export function ChartRenderer({ chart }: { chart: ChartData }) {
       )}
       <ResponsiveContainer width="100%" height={300}>
         {type === "line" ? (
-          <LineChart data={data}>
+          <LineChart data={normalizedData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
             <XAxis 
               dataKey={xKey} 
               tick={{ fontSize: 12 }} 
               stroke="#888"
+              interval={0}
+              angle={isMonthlyChart ? -45 : 0}
+              textAnchor={isMonthlyChart ? "end" : "middle"}
+              height={isMonthlyChart ? 60 : 30}
+              tickFormatter={isMonthlyChart ? (value) => value.slice(0, 3) : undefined}
             />
             <YAxis 
               tick={{ fontSize: 12 }} 
@@ -91,16 +122,37 @@ export function ChartRenderer({ chart }: { chart: ChartData }) {
                 strokeWidth={2}
                 dot={{ r: 4 }}
                 activeDot={{ r: 6 }}
+                connectNulls={false}
               />
             ))}
+            {/* Show dots at y=0 for missing months (no data) */}
+            {missingMonths.map((month) => 
+              yKeys.map((key, index) => (
+                <ReferenceDot
+                  key={`${month}-${key}`}
+                  x={month}
+                  y={0}
+                  r={4}
+                  fill={colors[index % colors.length]}
+                  fillOpacity={0.4}
+                  stroke={colors[index % colors.length]}
+                  strokeOpacity={0.6}
+                />
+              ))
+            )}
           </LineChart>
         ) : type === "bar" ? (
-          <BarChart data={data}>
+          <BarChart data={normalizedData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
             <XAxis 
               dataKey={xKey} 
               tick={{ fontSize: 12 }} 
               stroke="#888"
+              interval={0}
+              angle={isMonthlyChart ? -45 : 0}
+              textAnchor={isMonthlyChart ? "end" : "middle"}
+              height={isMonthlyChart ? 60 : 30}
+              tickFormatter={isMonthlyChart ? (value) => value.slice(0, 3) : undefined}
             />
             <YAxis 
               tick={{ fontSize: 12 }} 
@@ -129,12 +181,17 @@ export function ChartRenderer({ chart }: { chart: ChartData }) {
             ))}
           </BarChart>
         ) : type === "area" ? (
-          <AreaChart data={data}>
+          <AreaChart data={normalizedData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
             <XAxis 
               dataKey={xKey} 
               tick={{ fontSize: 12 }} 
               stroke="#888"
+              interval={0}
+              angle={isMonthlyChart ? -45 : 0}
+              textAnchor={isMonthlyChart ? "end" : "middle"}
+              height={isMonthlyChart ? 60 : 30}
+              tickFormatter={isMonthlyChart ? (value) => value.slice(0, 3) : undefined}
             />
             <YAxis 
               tick={{ fontSize: 12 }} 
@@ -161,8 +218,24 @@ export function ChartRenderer({ chart }: { chart: ChartData }) {
                 stroke={colors[index % colors.length]}
                 fill={colors[index % colors.length]}
                 fillOpacity={0.3}
+                connectNulls={false}
               />
             ))}
+            {/* Show dots at y=0 for missing months (no data) */}
+            {missingMonths.map((month) => 
+              yKeys.map((key, index) => (
+                <ReferenceDot
+                  key={`${month}-${key}`}
+                  x={month}
+                  y={0}
+                  r={4}
+                  fill={colors[index % colors.length]}
+                  fillOpacity={0.4}
+                  stroke={colors[index % colors.length]}
+                  strokeOpacity={0.6}
+                />
+              ))
+            )}
           </AreaChart>
         ) : type === "pie" ? (
           <PieChart>

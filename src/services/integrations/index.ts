@@ -205,6 +205,6 @@ export async function getConnectedIntegrations(userId: string): Promise<string[]
 // Re-export individual services for direct use
 export { searchNotion, hasNotionConnected, createNotionPage } from './notion.service';
 export { searchGoogleDrive, hasGoogleDriveConnected, listDriveFiles, createGoogleDriveFile } from './google-drive.service';
-export { searchGitHub, hasGitHubConnected, getUserRepos, createGitHubIssue } from './github.service';
+export { searchGitHub, hasGitHubConnected, getUserRepos, listUserRepos, createGitHubIssue } from './github.service';
 export { searchAirtable, hasAirtableConnected, getBasesSummary, createAirtableRecord, updateAirtableRecord } from './airtable.service';
 export { createPresentation, hasGoogleSlidesConnected } from './google-slides.service';

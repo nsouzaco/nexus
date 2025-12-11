@@ -96,3 +96,4 @@ export function isSupportedFileType(mimeType: string): mimeType is SupportedMime
 // Maximum file size (10MB)
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+

@@ -221,11 +221,12 @@ async function searchUserIssues(
 }
 
 /**
- * Get user's repositories
+ * Get user's repositories with optional limit
+ * If limit is not provided or is 0, fetches ALL repos with pagination
  */
 export async function getUserRepos(
   userId: string,
-  limit: number = 10
+  limit?: number
 ): Promise<GitHubSearchResult[]> {
   const accessToken = await getGitHubToken(userId);
   
@@ -234,18 +235,66 @@ export async function getUserRepos(
   }
 
   try {
-    const res = await fetch(`https://api.github.com/user/repos?per_page=${limit}&sort=updated`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/vnd.github.v3+json',
-      },
-    });
+    // If a specific limit is requested and it's <= 100, just fetch one page
+    if (limit && limit > 0 && limit <= 100) {
+      const res = await fetch(`https://api.github.com/user/repos?per_page=${limit}&sort=updated`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      });
 
-    if (!res.ok) return [];
+      if (!res.ok) return [];
 
-    const repos = await res.json();
+      const repos = await res.json();
+      
+      return repos.map((repo: any) => ({
+        id: repo.id.toString(),
+        type: 'repo' as const,
+        title: repo.full_name,
+        url: repo.html_url,
+        content: `Repository: ${repo.full_name}\nDescription: ${repo.description || 'No description'}\nLanguage: ${repo.language || 'N/A'}\nStars: ${repo.stargazers_count}`,
+        updatedAt: repo.updated_at,
+      }));
+    }
+
+    // Fetch ALL repos with pagination
+    const allRepos: any[] = [];
+    let page = 1;
+    const perPage = 100; // Max allowed by GitHub API
     
-    return repos.map((repo: any) => ({
+    while (true) {
+      const res = await fetch(
+        `https://api.github.com/user/repos?per_page=${perPage}&page=${page}&sort=updated`, 
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        }
+      );
+
+      if (!res.ok) break;
+
+      const repos = await res.json();
+      
+      if (repos.length === 0) break;
+      
+      allRepos.push(...repos);
+      
+      // If we got fewer than perPage, we've reached the end
+      if (repos.length < perPage) break;
+      
+      page++;
+      
+      // Safety limit to prevent infinite loops (max 50 pages = 5000 repos)
+      if (page > 50) break;
+    }
+    
+    // Apply limit if specified (for cases where limit > 100)
+    const finalRepos = limit && limit > 0 ? allRepos.slice(0, limit) : allRepos;
+    
+    return finalRepos.map((repo: any) => ({
       id: repo.id.toString(),
       type: 'repo' as const,
       title: repo.full_name,
@@ -255,6 +304,88 @@ export async function getUserRepos(
     }));
   } catch (error) {
     console.error('Error fetching user repos:', error);
+    return [];
+  }
+}
+
+/**
+ * List user's public repositories with pagination support
+ * Fetches ALL repos by default, or filters by visibility
+ */
+export async function listUserRepos(
+  userId: string,
+  options: {
+    visibility?: 'all' | 'public' | 'private';
+    limit?: number; // 0 or undefined = all repos
+  } = {}
+): Promise<GitHubSearchResult[]> {
+  const accessToken = await getGitHubToken(userId);
+  
+  if (!accessToken) {
+    return [];
+  }
+
+  const { visibility = 'all', limit } = options;
+
+  try {
+    const allRepos: any[] = [];
+    let page = 1;
+    const perPage = 100;
+    
+    while (true) {
+      // Use visibility parameter if not 'all'
+      const visibilityParam = visibility !== 'all' ? `&visibility=${visibility}` : '';
+      const res = await fetch(
+        `https://api.github.com/user/repos?per_page=${perPage}&page=${page}&sort=updated${visibilityParam}`, 
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        }
+      );
+
+      if (!res.ok) break;
+
+      const repos = await res.json();
+      
+      if (repos.length === 0) break;
+      
+      // If visibility=all but we want to filter, do it here
+      let filteredRepos = repos;
+      if (visibility === 'public') {
+        filteredRepos = repos.filter((r: any) => !r.private);
+      } else if (visibility === 'private') {
+        filteredRepos = repos.filter((r: any) => r.private);
+      }
+      
+      allRepos.push(...filteredRepos);
+      
+      // If limit is set and we have enough, stop
+      if (limit && limit > 0 && allRepos.length >= limit) {
+        break;
+      }
+      
+      if (repos.length < perPage) break;
+      
+      page++;
+      
+      // Safety limit
+      if (page > 50) break;
+    }
+    
+    const finalRepos = limit && limit > 0 ? allRepos.slice(0, limit) : allRepos;
+    
+    return finalRepos.map((repo: any) => ({
+      id: repo.id.toString(),
+      type: 'repo' as const,
+      title: repo.full_name,
+      url: repo.html_url,
+      content: `Repository: ${repo.full_name}\nDescription: ${repo.description || 'No description'}\nLanguage: ${repo.language || 'N/A'}\nStars: ${repo.stargazers_count}\nPrivate: ${repo.private ? 'Yes' : 'No'}`,
+      updatedAt: repo.updated_at,
+    }));
+  } catch (error) {
+    console.error('Error listing user repos:', error);
     return [];
   }
 }

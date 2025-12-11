@@ -10,7 +10,7 @@ import { Langfuse } from 'langfuse';
 const langfuse = new Langfuse({
   secretKey: process.env.LANGFUSE_SECRET_KEY,
   publicKey: process.env.LANGFUSE_PUBLIC_KEY,
-  baseUrl: process.env.LANGFUSE_BASEURL || 'https://us.cloud.langfuse.com',
+  baseUrl: process.env.LANGFUSE_BASE_URL || 'https://us.cloud.langfuse.com',
 });
 
 // Debug log entry type
@@ -196,6 +196,9 @@ export async function POST(request: NextRequest) {
 
     // Track step count for Langfuse
     let stepCount = 0;
+    
+    // Track active tool calls to stream to frontend
+    const activeToolCalls: Set<string> = new Set();
 
     // Stream the response using Vercel AI SDK
     const result = streamText({
@@ -405,9 +408,42 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Create a custom stream that includes tool call markers
+    const encoder = new TextEncoder();
+    
+    const customStream = new ReadableStream({
+      async start(controller) {
+        // Track which tool calls we've announced
+        const announcedToolCalls = new Set<string>();
+        
+        // Process the text stream
+        for await (const part of result.fullStream) {
+          if (part.type === 'tool-call') {
+            // Send tool call marker when tool is called
+            const toolMarker = `<!--TOOL_START:${part.toolName}-->`; 
+            if (!announcedToolCalls.has(part.toolName)) {
+              controller.enqueue(encoder.encode(toolMarker));
+              announcedToolCalls.add(part.toolName);
+            }
+          } else if (part.type === 'tool-result') {
+            // Send tool complete marker when result comes back
+            const toolCompleteMarker = `<!--TOOL_END:${part.toolName}-->`;
+            controller.enqueue(encoder.encode(toolCompleteMarker));
+            announcedToolCalls.delete(part.toolName);
+          } else if (part.type === 'text-delta') {
+            // Stream text normally
+            controller.enqueue(encoder.encode(part.text));
+          }
+        }
+        
+        controller.close();
+      },
+    });
+
     // Return streaming response with conversation ID in headers
-    return result.toTextStreamResponse({
+    return new Response(customStream, {
       headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
         'X-Conversation-Id': currentConversationId,
         'X-Connected-Integrations': connectedIntegrations.join(','),
       },

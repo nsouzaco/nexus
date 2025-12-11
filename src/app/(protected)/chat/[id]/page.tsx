@@ -21,10 +21,44 @@ function stripThinkingBlocks(content: string): string {
   return content.replace(/<thinking>[\s\S]*?<\/thinking>\s*/gi, '').trim();
 }
 
+// Parse tool markers from streamed content
+function parseToolMarkers(content: string): { 
+  cleanContent: string; 
+  activeTools: string[];
+  completedTools: string[];
+} {
+  const activeTools: string[] = [];
+  const completedTools: string[] = [];
+  let cleanContent = content;
+  
+  // Find all tool start markers
+  const startRegex = /<!--TOOL_START:(\w+)-->/g;
+  let match;
+  while ((match = startRegex.exec(content)) !== null) {
+    activeTools.push(match[1]);
+    cleanContent = cleanContent.replace(match[0], '');
+  }
+  
+  // Find all tool end markers and remove from active
+  const endRegex = /<!--TOOL_END:(\w+)-->/g;
+  while ((match = endRegex.exec(content)) !== null) {
+    const toolName = match[1];
+    const activeIndex = activeTools.indexOf(toolName);
+    if (activeIndex > -1) {
+      activeTools.splice(activeIndex, 1);
+    }
+    completedTools.push(toolName);
+    cleanContent = cleanContent.replace(match[0], '');
+  }
+  
+  return { cleanContent, activeTools, completedTools };
+}
+
 // Tool icon mapping
 const toolIcons: Record<string, React.ReactNode> = {
   searchAirtable: <Database className="w-3 h-3" />,
   searchGitHub: <Code className="w-3 h-3" />,
+  listGitHubRepos: <Code className="w-3 h-3" />,
   searchNotion: <FileText className="w-3 h-3" />,
   searchGoogleDrive: <FileText className="w-3 h-3" />,
   searchFiles: <Search className="w-3 h-3" />,
@@ -32,6 +66,8 @@ const toolIcons: Record<string, React.ReactNode> = {
   updateAirtableRecord: <Database className="w-3 h-3" />,
   createGitHubIssue: <Code className="w-3 h-3" />,
   createNotionPage: <FileText className="w-3 h-3" />,
+  createGoogleDriveFile: <FileText className="w-3 h-3" />,
+  createSlidesPresentation: <FileText className="w-3 h-3" />,
   generateChart: <ChartLine className="w-3 h-3" />,
   executeCode: <Code className="w-3 h-3" />,
   webSearch: <Globe className="w-3 h-3" />,
@@ -41,6 +77,7 @@ const toolIcons: Record<string, React.ReactNode> = {
 const toolLabels: Record<string, string> = {
   searchAirtable: "Searching Airtable",
   searchGitHub: "Searching GitHub",
+  listGitHubRepos: "Loading repositories",
   searchNotion: "Searching Notion",
   searchGoogleDrive: "Searching Google Drive",
   searchFiles: "Searching files",
@@ -48,6 +85,8 @@ const toolLabels: Record<string, string> = {
   updateAirtableRecord: "Updating Airtable record",
   createGitHubIssue: "Creating GitHub issue",
   createNotionPage: "Creating Notion page",
+  createGoogleDriveFile: "Creating Google Drive file",
+  createSlidesPresentation: "Creating presentation",
   generateChart: "Generating chart",
   executeCode: "Running calculation",
   webSearch: "Searching the web",
@@ -364,13 +403,16 @@ export default function ConversationPage() {
               >
                 {message.role === "assistant" ? (
                   (() => {
+                    // Parse tool markers from content
+                    const { cleanContent, activeTools, completedTools } = parseToolMarkers(message.content);
+                    
                     // Parse charts from content - also removes ```chart blocks from text
-                    const { text, charts } = parseChartFromMessage(message.content);
+                    const { text, charts } = parseChartFromMessage(cleanContent);
                     
                     // Check if this is the currently streaming message
                     const isCurrentlyStreaming = isLoading && message.id === messages[messages.length - 1]?.id;
-                    const hasIncompleteChart = message.content.includes('```chart') && 
-                      !message.content.match(/```chart\n[\s\S]*?\n```/);
+                    const hasIncompleteChart = cleanContent.includes('```chart') && 
+                      !cleanContent.match(/```chart\n[\s\S]*?\n```/);
                     
                     // Hide incomplete chart JSON during streaming
                     // Also strip <thinking> blocks (debug mode content not for UI)
@@ -383,19 +425,25 @@ export default function ConversationPage() {
                       displayText = displayText.replace(/<thinking>[\s\S]*$/, '').trim();
                     }
                     
+                    // Build tool calls list from markers
+                    const allToolCalls = [
+                      ...completedTools.map(name => ({ name, status: 'complete' as const })),
+                      ...activeTools.map(name => ({ name, status: 'pending' as const })),
+                    ];
+                    
                     return (
                       <>
                         {/* Tool Calls */}
-                        {message.toolCalls && message.toolCalls.length > 0 && (
+                        {allToolCalls.length > 0 && (
                           <div className="mb-3 space-y-2">
-                            {message.toolCalls.map((tool, idx) => (
+                            {allToolCalls.map((tool, idx) => (
                               <div 
                                 key={idx}
                                 className={cn(
-                                  "flex items-center gap-2 text-xs py-1.5 px-2.5 rounded-lg",
+                                  "flex items-center gap-2 text-xs py-1.5 px-2.5 rounded-lg transition-all duration-300",
                                   tool.status === 'complete' 
                                     ? "bg-green-500/10 text-green-700 dark:text-green-400"
-                                    : "bg-primary/10 text-primary"
+                                    : "bg-primary/10 text-primary animate-pulse"
                                 )}
                               >
                                 {tool.status !== 'complete' ? (
@@ -515,7 +563,8 @@ export default function ConversationPage() {
               )}
             </div>
           ))}
-          {isLoading && (
+          {/* Only show thinking indicator when loading and the last message has no content */}
+          {isLoading && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && !messages[messages.length - 1]?.content && (
             <div className="flex gap-3 justify-start">
               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <Bot className="w-4 h-4 text-primary" />

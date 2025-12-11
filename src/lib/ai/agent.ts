@@ -8,7 +8,8 @@ import {
 import { 
   searchGitHub, 
   createGitHubIssue,
-  hasGitHubConnected 
+  hasGitHubConnected,
+  listUserRepos,
 } from '@/services/integrations/github.service';
 import { 
   searchNotion, 
@@ -76,11 +77,11 @@ export function createAgentTools(userId: string) {
       },
     },
 
-    // Search GitHub
+    // Search GitHub (for keyword search only, NOT for listing repos)
     searchGitHub: {
-      description: 'Search GitHub repositories, issues, and code. Use this to find repos, issues, pull requests, or code files.',
+      description: 'Search GitHub by keyword to find specific repos or issues matching a search term. DO NOT use this to list all repos - use listGitHubRepos instead. Only use this for keyword searches like "find repos about authentication".',
       inputSchema: z.object({
-        query: z.string().describe('Search query for repositories, issues, or code'),
+        query: z.string().describe('Search keyword to find matching repositories or issues'),
         type: z.enum(['repos', 'issues', 'code']).optional().describe('Type of search: repos, issues, or code'),
       }),
       execute: async ({ query }: { query: string }) => {
@@ -100,6 +101,38 @@ export function createAgentTools(userId: string) {
           results: results.map(r => ({
             id: r.id,
             type: r.type,
+            title: r.title,
+            url: r.url,
+            content: r.content,
+            updatedAt: r.updatedAt,
+          })),
+        };
+      },
+    },
+
+    // List GitHub Repos - USE THIS for listing repos
+    listGitHubRepos: {
+      description: 'List GitHub repositories. ALWAYS use this tool when user asks to "list", "show", "see", or wants "all" their repos. This fetches ALL repos with pagination - no artificial limits. Use this instead of searchGitHub when user wants to see their repositories.',
+      inputSchema: z.object({
+        visibility: z.enum(['all', 'public', 'private']).optional().describe('Filter by visibility: all (default), public, or private'),
+      }),
+      execute: async ({ visibility }: { visibility?: 'all' | 'public' | 'private' }) => {
+        const isConnected = await hasGitHubConnected(userId);
+        if (!isConnected) {
+          return { error: 'GitHub is not connected. Please connect it from the Dashboard.' };
+        }
+        
+        // No limit - fetch ALL repos
+        const results = await listUserRepos(userId, { visibility });
+        
+        if (results.length === 0) {
+          return { message: 'No repositories found.', results: [] };
+        }
+        
+        return {
+          message: `Found ${results.length} repositories.`,
+          results: results.map(r => ({
+            id: r.id,
             title: r.title,
             url: r.url,
             content: r.content,
@@ -534,6 +567,7 @@ You have access to powerful tools that let you:
 **Search & Retrieve:**
 - Search Airtable records, bases, and tables
 - Search GitHub repos, issues, and code
+- List ALL GitHub repositories (with pagination - no limits!)
 - Search Notion pages and databases
 - Search Google Drive files
 - Search user-uploaded files (PDFs, docs, CSVs)
@@ -641,7 +675,7 @@ Rules for charts:
 2. The "data" array must contain objects with the keys specified in xKey and yKey
 3. For multiple lines/bars, use an array for yKey: ["revenue", "expenses"]
 4. Include a descriptive title
-5. Add a brief text explanation before or after the chart
+5. **DO NOT list the data as text when creating a chart** - the chart itself shows the data. Just provide a brief intro sentence (e.g., "Here's your monthly revenue for 2024:") and then the chart block. Never list all data points as bullet points or text before the chart.
 
 ## Important Rules
 
@@ -659,6 +693,14 @@ Rules for charts:
 
 - When listing GitHub repositories, show: repo name, description (if available), link, and last updated date. Do NOT include the programming language unless specifically asked.
 - Keep responses concise and focused on what the user asked for.
+
+## GitHub Tool Selection - IMPORTANT
+
+- **listGitHubRepos**: ALWAYS use this when user says "list", "show", "all", "every", or wants to see their repositories. This is the ONLY tool that fetches ALL repos with no limits.
+- **searchGitHub**: ONLY use for keyword searches like "find repos about X" or "search issues for Y". This has a limit and is NOT for listing repos.
+
+If user says "list all my repos" or "show my public repos" → use listGitHubRepos
+If user says "find repos about authentication" → use searchGitHub
 
 Remember: You're a capable assistant that can actually DO things, not just answer questions. Take initiative when appropriate, but always keep the user informed.`;
 }
